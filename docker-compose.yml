@@ -1,0 +1,9 @@
+services:
+  server:
+    image: hugomods/hugo:exts
+    command: server -D
+    volumes:
+      - ./:/src
+      - /tmp/hugo_cache:/tmp/hugo_cache
+    ports:
+      - '1313:1313'

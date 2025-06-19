@@ -1,0 +1,100 @@
+<!doctype html><html lang=en dir=ltr><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=description content="
+  Webhook Handler (Express.js)
+  #
+
+const express = require('express');
+const app = express();
+
+app.use(express.json());
+
+app.post('/webhook', (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    if (!token) {
+      return res.status(401).json({ 
+        error: 'Authorization header missing' 
+      });
+    }
+    
+    const validatedToken = validateSWT(token, req.body, process.env.WEBHOOK_SECRET);
+    
+    // Process webhook
+    processWebhook(validatedToken.webhook, req.body);
+    
+    res.status(200).json({ status: 'success' });
+  } catch (error) {
+    console.error('Webhook validation failed:', error.message);
+    res.status(401).json({ 
+      error: 'Unauthorized', 
+      message: error.message 
+    });
+  }
+});
+
+function processWebhook(webhookData, payload) {
+  console.log(`Webhook Event: ${webhookData.event}`);
+  console.log('Payload:', payload);
+  
+  // Actual webhook logic would go here
+  switch (webhookData.event) {
+    case 'user.created':
+      handleUserCreated(payload);
+      break;
+    case 'user.updated':
+      handleUserUpdated(payload);
+      break;
+    default:
+      console.log('Unknown event:', webhookData.event);
+  }
+}
+"><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/webhook-handler/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Webhook Handler"><meta property="og:description" content="Webhook Handler (Express.js) # const express = require('express'); const app = express(); app.use(express.json()); app.post('/webhook', (req, res) => { try { const token = req.headers.authorization?.replace('Bearer ', ''); if (!token) { return res.status(401).json({ error: 'Authorization header missing' }); } const validatedToken = validateSWT(token, req.body, process.env.WEBHOOK_SECRET); // Process webhook processWebhook(validatedToken.webhook, req.body); res.status(200).json({ status: 'success' }); } catch (error) { console.error('Webhook validation failed:', error.message); res.status(401).json({ error: 'Unauthorized', message: error.message }); } }); function processWebhook(webhookData, payload) { console.log(`Webhook Event: ${webhookData.event}`); console.log('Payload:', payload); // Actual webhook logic would go here switch (webhookData.event) { case 'user.created': handleUserCreated(payload); break; case 'user.updated': handleUserUpdated(payload); break; default: console.log('Unknown event:', webhookData.event); } }"><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-06-19T18:43:06+02:00"><title>Webhook Handler | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/webhook-handler/><link rel=alternate hreflang=de href=https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/js/webhook-handler/ title=Webhook-Handler><link rel=stylesheet href=/book.min.e47103a2785905b5db8438d6a609c05371af6c90eabdc369de60b296f8bba830.css integrity="sha256-5HEDonhZBbXbhDjWpgnAU3GvbJDqvcNp3mCylvi7qDA=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.5d822ab351e748f176dd3f9681aa026c870fa82687758d87c2188762e3e8af38.js integrity="sha256-XYIqs1HnSPF23T+WgaoCbIcPqCaHdY2HwhiHYuPorzg=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+<input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Search aria-label=Search maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
+<label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
+English</a></label><ul><li><a href=/de/docs/swt/implementations/examples/js/webhook-handler/>Deutsch</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/docs/swt/specification/>Specification</a></li><li><a href=/docs/swt/security/>Security Guidelines</a></li><li><a href=/docs/swt/error-handling/>Error Handling</a></li><li><a href=/docs/swt/implementations/>Implementations</a><ul><li><input type=checkbox id=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=toggle checked>
+<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/ class=active>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Webhook Handler</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><ul><li><a href=#webhook-handler-expressjs>Webhook Handler (Express.js)</a></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h2 id=webhook-handler-expressjs>Webhook Handler (Express.js)
+<a class=anchor href=#webhook-handler-expressjs>#</a></h2><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>express</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;express&#39;</span>);
+</span></span><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>app</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>express</span>();
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#a6e22e>app</span>.<span style=color:#a6e22e>use</span>(<span style=color:#a6e22e>express</span>.<span style=color:#a6e22e>json</span>());
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#a6e22e>app</span>.<span style=color:#a6e22e>post</span>(<span style=color:#e6db74>&#39;/webhook&#39;</span>, (<span style=color:#a6e22e>req</span>, <span style=color:#a6e22e>res</span>) =&gt; {
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>try</span> {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>token</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>headers</span>.<span style=color:#a6e22e>authorization</span><span style=color:#f92672>?</span>.<span style=color:#a6e22e>replace</span>(<span style=color:#e6db74>&#39;Bearer &#39;</span>, <span style=color:#e6db74>&#39;&#39;</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#f92672>!</span><span style=color:#a6e22e>token</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>401</span>).<span style=color:#a6e22e>json</span>({ 
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Authorization header missing&#39;</span> 
+</span></span><span style=display:flex><span>      });
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>validatedToken</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>validateSWT</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>body</span>, <span style=color:#a6e22e>process</span>.<span style=color:#a6e22e>env</span>.<span style=color:#a6e22e>WEBHOOK_SECRET</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Process webhook
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#a6e22e>processWebhook</span>(<span style=color:#a6e22e>validatedToken</span>.<span style=color:#a6e22e>webhook</span>, <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>body</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>200</span>).<span style=color:#a6e22e>json</span>({ <span style=color:#a6e22e>status</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;success&#39;</span> });
+</span></span><span style=display:flex><span>  } <span style=color:#66d9ef>catch</span> (<span style=color:#a6e22e>error</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>console</span>.<span style=color:#a6e22e>error</span>(<span style=color:#e6db74>&#39;Webhook validation failed:&#39;</span>, <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span>);
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>401</span>).<span style=color:#a6e22e>json</span>({ 
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Unauthorized&#39;</span>, 
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span> 
+</span></span><span style=display:flex><span>    });
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>});
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>function</span> <span style=color:#a6e22e>processWebhook</span>(<span style=color:#a6e22e>webhookData</span>, <span style=color:#a6e22e>payload</span>) {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>console</span>.<span style=color:#a6e22e>log</span>(<span style=color:#e6db74>`Webhook Event: </span><span style=color:#e6db74>${</span><span style=color:#a6e22e>webhookData</span>.<span style=color:#a6e22e>event</span><span style=color:#e6db74>}</span><span style=color:#e6db74>`</span>);
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>console</span>.<span style=color:#a6e22e>log</span>(<span style=color:#e6db74>&#39;Payload:&#39;</span>, <span style=color:#a6e22e>payload</span>);
+</span></span><span style=display:flex><span>  
+</span></span><span style=display:flex><span>  <span style=color:#75715e>// Actual webhook logic would go here
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>  <span style=color:#66d9ef>switch</span> (<span style=color:#a6e22e>webhookData</span>.<span style=color:#a6e22e>event</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>case</span> <span style=color:#e6db74>&#39;user.created&#39;</span><span style=color:#f92672>:</span>
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>handleUserCreated</span>(<span style=color:#a6e22e>payload</span>);
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>break</span>;
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>case</span> <span style=color:#e6db74>&#39;user.updated&#39;</span><span style=color:#f92672>:</span>
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>handleUserUpdated</span>(<span style=color:#a6e22e>payload</span>);
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>break</span>;
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>default</span><span style=color:#f92672>:</span>
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>console</span>.<span style=color:#a6e22e>log</span>(<span style=color:#e6db74>&#39;Unknown event:&#39;</span>, <span style=color:#a6e22e>webhookData</span>.<span style=color:#a6e22e>event</span>);
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><ul><li><a href=#webhook-handler-expressjs>Webhook Handler (Express.js)</a></li></ul></li></ul></nav></div></aside></main></body></html>

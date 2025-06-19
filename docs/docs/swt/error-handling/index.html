@@ -1,0 +1,554 @@
+<!doctype html><html lang=en dir=ltr><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=description content="
+  Error Handling
+  #
+
+
+  Common Validation Errors
+  #
+
+
+  
+      
+          Error
+          Cause
+          Solution
+      
+  
+  
+      
+          Token expired
+          Token has expired
+          Request new token
+      
+      
+          Invalid signature
+          Wrong key or manipulated token
+          Verify key
+      
+      
+          Hash mismatch
+          Payload was modified
+          Use original payload
+      
+      
+          Missing claims
+          Required claims missing
+          Correct token structure
+      
+      
+          Token not yet valid
+          nbf-claim is in the future
+          Check clock synchronization
+      
+      
+          Replay attack detected
+          JTI already used
+          Generate new token
+      
+  
+
+
+  Example Error Handling
+  #
+
+app.post('/webhook', (req, res) => {
+  try {
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    const validatedToken = validateSWT(token, req.body, SECRET_KEY);
+    
+    // Process webhook
+    processWebhook(validatedToken.webhook, req.body);
+    
+    res.status(200).json({ status: 'success' });
+  } catch (error) {
+    console.error('Webhook validation failed:', error.message);
+    
+    // Specific error handling
+    if (error.message.includes('expired')) {
+      return res.status(401).json({ 
+        error: 'TOKEN_EXPIRED',
+        message: 'Token has expired'
+      });
+    }
+    
+    if (error.message.includes('signature')) {
+      return res.status(401).json({ 
+        error: 'INVALID_SIGNATURE',
+        message: 'Invalid token signature'
+      });
+    }
+    
+    if (error.message.includes('Hash')) {
+      return res.status(400).json({ 
+        error: 'PAYLOAD_MISMATCH',
+        message: 'Payload was modified'
+      });
+    }
+    
+    // General error
+    res.status(401).json({ 
+      error: 'UNAUTHORIZED', 
+      message: 'Token validation failed'
+    });
+  }
+});
+
+  Advanced Error Handling
+  #
+
+
+  Define Error Classes
+  #
+
+class SWTError extends Error {
+  constructor(message, code, statusCode = 401) {
+    super(message);
+    this.name = 'SWTError';
+    this.code = code;
+    this.statusCode = statusCode;
+  }
+}
+
+class TokenExpiredError extends SWTError {
+  constructor() {
+    super('Token has expired', 'TOKEN_EXPIRED', 401);
+  }
+}
+
+class InvalidSignatureError extends SWTError {
+  constructor() {
+    super('Invalid token signature', 'INVALID_SIGNATURE', 401);
+  }
+}
+
+class PayloadMismatchError extends SWTError {
+  constructor() {
+    super('Payload hash mismatch', 'PAYLOAD_MISMATCH', 400);
+  }
+}
+
+class ReplayAttackError extends SWTError {
+  constructor() {
+    super('Token already used', 'REPLAY_ATTACK', 401);
+  }
+}
+
+  Improved Validation Function
+  #
+
+function validateSWT(token, payload, secret) {
+  try {
+    const decoded = jwt.verify(token, secret);
+    
+    // Check required claims
+    const requiredClaims = ['webhook', 'iss', 'exp', 'nbf', 'iat', 'jti'];
+    for (const claim of requiredClaims) {
+      if (!decoded[claim]) {
+        throw new SWTError(`Missing required claim: ${claim}`, 'MISSING_CLAIM', 400);
+      }
+    }
+    
+    // Time validation
+    const now = Math.floor(Date.now() / 1000);
+    if (decoded.exp <= now) {
+      throw new TokenExpiredError();
+    }
+    if (decoded.nbf > now) {
+      throw new SWTError('Token not yet valid', 'TOKEN_NOT_YET_VALID', 401);
+    }
+    
+    // Validate payload hash
+    if (payload && decoded.webhook.hash) {
+      const [algorithm, expectedHash] = decoded.webhook.hash.split(':');
+      const actualHash = crypto.createHash(algorithm)
+                              .update(JSON.stringify(payload))
+                              .digest('hex');
+      
+      if (actualHash !== expectedHash) {
+        throw new PayloadMismatchError();
+      }
+    }
+    
+    return decoded;
+  } catch (error) {
+    if (error instanceof SWTError) {
+      throw error;
+    }
+    
+    if (error.name === 'TokenExpiredError') {
+      throw new TokenExpiredError();
+    }
+    
+    if (error.name === 'JsonWebTokenError') {
+      throw new InvalidSignatureError();
+    }
+    
+    throw new SWTError('Unknown validation error', 'VALIDATION_ERROR', 500);
+  }
+}
+
+  Logging and Monitoring
+  #
+
+
+  Structured Logging
+  #
+
+const winston = require('winston');
+
+const logger = winston.createLogger({
+  level: 'info',
+  format: winston.format.combine(
+    winston.format.timestamp(),
+    winston.format.errors({ stack: true }),
+    winston.format.json()
+  ),
+  transports: [
+    new winston.transports.File({ filename: 'webhook-errors.log', level: 'error' }),
+    new winston.transports.File({ filename: 'webhook-combined.log' })
+  ]
+});
+
+function logWebhookEvent(event, details, level = 'info') {
+  logger.log({
+    level: level,
+    message: 'Webhook Event',
+    event: event,
+    details: details,
+    timestamp: new Date().toISOString()
+  });
+}
+
+// Usage
+try {
+  const validatedToken = validateSWT(token, req.body, SECRET_KEY);
+  logWebhookEvent('webhook_validated', {
+    event: validatedToken.webhook.event,
+    jti: validatedToken.jti,
+    issuer: validatedToken.iss
+  });
+} catch (error) {
+  logWebhookEvent('webhook_validation_failed', {
+    error: error.message,
+    code: error.code,
+    ip: req.ip,
+    userAgent: req.get('User-Agent')
+  }, 'error');
+}
+
+  Metrics and Alerting
+  #
+
+const prometheus = require('prom-client');
+
+// Define metrics
+const webhookValidationCounter = new prometheus.Counter({
+  name: 'webhook_validation_total',
+  help: 'Total number of webhook validations',
+  labelNames: ['status', 'error_type']
+});
+
+const webhookValidationDuration = new prometheus.Histogram({
+  name: 'webhook_validation_duration_seconds',
+  help: 'Duration of webhook validation',
+  buckets: [0.1, 0.5, 1, 2, 5]
+});
+
+// Use metrics
+app.post('/webhook', async (req, res) => {
+  const startTime = Date.now();
+  
+  try {
+    const validatedToken = validateSWT(token, req.body, SECRET_KEY);
+    
+    webhookValidationCounter.inc({ status: 'success', error_type: 'none' });
+    processWebhook(validatedToken.webhook, req.body);
+    
+    res.status(200).json({ status: 'success' });
+  } catch (error) {
+    webhookValidationCounter.inc({ 
+      status: 'error', 
+      error_type: error.code || 'unknown' 
+    });
+    
+    res.status(error.statusCode || 500).json({
+      error: error.code || 'UNKNOWN_ERROR',
+      message: error.message
+    });
+  } finally {
+    const duration = (Date.now() - startTime) / 1000;
+    webhookValidationDuration.observe(duration);
+  }
+});
+
+  Rate Limiting
+  #
+
+const rateLimit = require('express-rate-limit');
+
+const webhookLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 100, // Maximum 100 requests per IP
+  message: {
+    error: 'RATE_LIMIT_EXCEEDED',
+    message: 'Too many webhook requests'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Limit authenticated requests less strictly
+    const token = req.headers.authorization?.replace('Bearer ', '');
+    try {
+      jwt.verify(token, SECRET_KEY);
+      return false; // Don't skip, but limit less strictly
+    } catch {
+      return false;
+    }
+  }
+});
+
+app.use('/webhook', webhookLimiter);
+"><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/error-handling/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Error Handling"><meta property="og:description" content="Error Handling # Common Validation Errors # Error Cause Solution Token expired Token has expired Request new token Invalid signature Wrong key or manipulated token Verify key Hash mismatch Payload was modified Use original payload Missing claims Required claims missing Correct token structure Token not yet valid nbf-claim is in the future Check clock synchronization Replay attack detected JTI already used Generate new token Example Error Handling # app.post('/webhook', (req, res) => { try { const token = req.headers.authorization?.replace('Bearer ', ''); const validatedToken = validateSWT(token, req.body, SECRET_KEY); // Process webhook processWebhook(validatedToken.webhook, req.body); res.status(200).json({ status: 'success' }); } catch (error) { console.error('Webhook validation failed:', error.message); // Specific error handling if (error.message.includes('expired')) { return res.status(401).json({ error: 'TOKEN_EXPIRED', message: 'Token has expired' }); } if (error.message.includes('signature')) { return res.status(401).json({ error: 'INVALID_SIGNATURE', message: 'Invalid token signature' }); } if (error.message.includes('Hash')) { return res.status(400).json({ error: 'PAYLOAD_MISMATCH', message: 'Payload was modified' }); } // General error res.status(401).json({ error: 'UNAUTHORIZED', message: 'Token validation failed' }); } }); Advanced Error Handling # Define Error Classes # class SWTError extends Error { constructor(message, code, statusCode = 401) { super(message); this.name = 'SWTError'; this.code = code; this.statusCode = statusCode; } } class TokenExpiredError extends SWTError { constructor() { super('Token has expired', 'TOKEN_EXPIRED', 401); } } class InvalidSignatureError extends SWTError { constructor() { super('Invalid token signature', 'INVALID_SIGNATURE', 401); } } class PayloadMismatchError extends SWTError { constructor() { super('Payload hash mismatch', 'PAYLOAD_MISMATCH', 400); } } class ReplayAttackError extends SWTError { constructor() { super('Token already used', 'REPLAY_ATTACK', 401); } } Improved Validation Function # function validateSWT(token, payload, secret) { try { const decoded = jwt.verify(token, secret); // Check required claims const requiredClaims = ['webhook', 'iss', 'exp', 'nbf', 'iat', 'jti']; for (const claim of requiredClaims) { if (!decoded[claim]) { throw new SWTError(`Missing required claim: ${claim}`, 'MISSING_CLAIM', 400); } } // Time validation const now = Math.floor(Date.now() / 1000); if (decoded.exp <= now) { throw new TokenExpiredError(); } if (decoded.nbf > now) { throw new SWTError('Token not yet valid', 'TOKEN_NOT_YET_VALID', 401); } // Validate payload hash if (payload && decoded.webhook.hash) { const [algorithm, expectedHash] = decoded.webhook.hash.split(':'); const actualHash = crypto.createHash(algorithm) .update(JSON.stringify(payload)) .digest('hex'); if (actualHash !== expectedHash) { throw new PayloadMismatchError(); } } return decoded; } catch (error) { if (error instanceof SWTError) { throw error; } if (error.name === 'TokenExpiredError') { throw new TokenExpiredError(); } if (error.name === 'JsonWebTokenError') { throw new InvalidSignatureError(); } throw new SWTError('Unknown validation error', 'VALIDATION_ERROR', 500); } } Logging and Monitoring # Structured Logging # const winston = require('winston'); const logger = winston.createLogger({ level: 'info', format: winston.format.combine( winston.format.timestamp(), winston.format.errors({ stack: true }), winston.format.json() ), transports: [ new winston.transports.File({ filename: 'webhook-errors.log', level: 'error' }), new winston.transports.File({ filename: 'webhook-combined.log' }) ] }); function logWebhookEvent(event, details, level = 'info') { logger.log({ level: level, message: 'Webhook Event', event: event, details: details, timestamp: new Date().toISOString() }); } // Usage try { const validatedToken = validateSWT(token, req.body, SECRET_KEY); logWebhookEvent('webhook_validated', { event: validatedToken.webhook.event, jti: validatedToken.jti, issuer: validatedToken.iss }); } catch (error) { logWebhookEvent('webhook_validation_failed', { error: error.message, code: error.code, ip: req.ip, userAgent: req.get('User-Agent') }, 'error'); } Metrics and Alerting # const prometheus = require('prom-client'); // Define metrics const webhookValidationCounter = new prometheus.Counter({ name: 'webhook_validation_total', help: 'Total number of webhook validations', labelNames: ['status', 'error_type'] }); const webhookValidationDuration = new prometheus.Histogram({ name: 'webhook_validation_duration_seconds', help: 'Duration of webhook validation', buckets: [0.1, 0.5, 1, 2, 5] }); // Use metrics app.post('/webhook', async (req, res) => { const startTime = Date.now(); try { const validatedToken = validateSWT(token, req.body, SECRET_KEY); webhookValidationCounter.inc({ status: 'success', error_type: 'none' }); processWebhook(validatedToken.webhook, req.body); res.status(200).json({ status: 'success' }); } catch (error) { webhookValidationCounter.inc({ status: 'error', error_type: error.code || 'unknown' }); res.status(error.statusCode || 500).json({ error: error.code || 'UNKNOWN_ERROR', message: error.message }); } finally { const duration = (Date.now() - startTime) / 1000; webhookValidationDuration.observe(duration); } }); Rate Limiting # const rateLimit = require('express-rate-limit'); const webhookLimiter = rateLimit({ windowMs: 15 * 60 * 1000, // 15 minutes max: 100, // Maximum 100 requests per IP message: { error: 'RATE_LIMIT_EXCEEDED', message: 'Too many webhook requests' }, standardHeaders: true, legacyHeaders: false, skip: (req) => { // Limit authenticated requests less strictly const token = req.headers.authorization?.replace('Bearer ', ''); try { jwt.verify(token, SECRET_KEY); return false; // Don't skip, but limit less strictly } catch { return false; } } }); app.use('/webhook', webhookLimiter);"><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-06-19T18:43:06+02:00"><title>Error Handling | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/error-handling/><link rel=stylesheet href=/book.min.e47103a2785905b5db8438d6a609c05371af6c90eabdc369de60b296f8bba830.css integrity="sha256-5HEDonhZBbXbhDjWpgnAU3GvbJDqvcNp3mCylvi7qDA=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.5d822ab351e748f176dd3f9681aa026c870fa82687758d87c2188762e3e8af38.js integrity="sha256-XYIqs1HnSPF23T+WgaoCbIcPqCaHdY2HwhiHYuPorzg=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+<input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Search aria-label=Search maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
+<label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
+English</a></label><ul><li><a href=/de/>Deutsch</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/docs/swt/specification/>Specification</a></li><li><a href=/docs/swt/security/>Security Guidelines</a></li><li><a href=/docs/swt/error-handling/ class=active>Error Handling</a></li><li><a href=/docs/swt/implementations/>Implementations</a><ul><li><input type=checkbox id=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=toggle>
+<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Error Handling</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><a href=#error-handling>Error Handling</a><ul><li><a href=#common-validation-errors>Common Validation Errors</a></li><li><a href=#example-error-handling>Example Error Handling</a></li><li><a href=#advanced-error-handling>Advanced Error Handling</a><ul><li><a href=#define-error-classes>Define Error Classes</a></li><li><a href=#improved-validation-function>Improved Validation Function</a></li></ul></li><li><a href=#logging-and-monitoring>Logging and Monitoring</a><ul><li><a href=#structured-logging>Structured Logging</a></li><li><a href=#metrics-and-alerting>Metrics and Alerting</a></li></ul></li><li><a href=#rate-limiting>Rate Limiting</a></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h1 id=error-handling>Error Handling
+<a class=anchor href=#error-handling>#</a></h1><h2 id=common-validation-errors>Common Validation Errors
+<a class=anchor href=#common-validation-errors>#</a></h2><table><thead><tr><th>Error</th><th>Cause</th><th>Solution</th></tr></thead><tbody><tr><td><code>Token expired</code></td><td>Token has expired</td><td>Request new token</td></tr><tr><td><code>Invalid signature</code></td><td>Wrong key or manipulated token</td><td>Verify key</td></tr><tr><td><code>Hash mismatch</code></td><td>Payload was modified</td><td>Use original payload</td></tr><tr><td><code>Missing claims</code></td><td>Required claims missing</td><td>Correct token structure</td></tr><tr><td><code>Token not yet valid</code></td><td>nbf-claim is in the future</td><td>Check clock synchronization</td></tr><tr><td><code>Replay attack detected</code></td><td>JTI already used</td><td>Generate new token</td></tr></tbody></table><h2 id=example-error-handling>Example Error Handling
+<a class=anchor href=#example-error-handling>#</a></h2><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#a6e22e>app</span>.<span style=color:#a6e22e>post</span>(<span style=color:#e6db74>&#39;/webhook&#39;</span>, (<span style=color:#a6e22e>req</span>, <span style=color:#a6e22e>res</span>) =&gt; {
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>try</span> {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>token</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>headers</span>.<span style=color:#a6e22e>authorization</span><span style=color:#f92672>?</span>.<span style=color:#a6e22e>replace</span>(<span style=color:#e6db74>&#39;Bearer &#39;</span>, <span style=color:#e6db74>&#39;&#39;</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>validatedToken</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>validateSWT</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>body</span>, <span style=color:#a6e22e>SECRET_KEY</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Process webhook
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#a6e22e>processWebhook</span>(<span style=color:#a6e22e>validatedToken</span>.<span style=color:#a6e22e>webhook</span>, <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>body</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>200</span>).<span style=color:#a6e22e>json</span>({ <span style=color:#a6e22e>status</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;success&#39;</span> });
+</span></span><span style=display:flex><span>  } <span style=color:#66d9ef>catch</span> (<span style=color:#a6e22e>error</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>console</span>.<span style=color:#a6e22e>error</span>(<span style=color:#e6db74>&#39;Webhook validation failed:&#39;</span>, <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Specific error handling
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span>.<span style=color:#a6e22e>includes</span>(<span style=color:#e6db74>&#39;expired&#39;</span>)) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>401</span>).<span style=color:#a6e22e>json</span>({ 
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;TOKEN_EXPIRED&#39;</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Token has expired&#39;</span>
+</span></span><span style=display:flex><span>      });
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span>.<span style=color:#a6e22e>includes</span>(<span style=color:#e6db74>&#39;signature&#39;</span>)) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>401</span>).<span style=color:#a6e22e>json</span>({ 
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;INVALID_SIGNATURE&#39;</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Invalid token signature&#39;</span>
+</span></span><span style=display:flex><span>      });
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span>.<span style=color:#a6e22e>includes</span>(<span style=color:#e6db74>&#39;Hash&#39;</span>)) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>400</span>).<span style=color:#a6e22e>json</span>({ 
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;PAYLOAD_MISMATCH&#39;</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Payload was modified&#39;</span>
+</span></span><span style=display:flex><span>      });
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// General error
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>401</span>).<span style=color:#a6e22e>json</span>({ 
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;UNAUTHORIZED&#39;</span>, 
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Token validation failed&#39;</span>
+</span></span><span style=display:flex><span>    });
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>});
+</span></span></code></pre></div><h2 id=advanced-error-handling>Advanced Error Handling
+<a class=anchor href=#advanced-error-handling>#</a></h2><h3 id=define-error-classes>Define Error Classes
+<a class=anchor href=#define-error-classes>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>class</span> <span style=color:#a6e22e>SWTError</span> <span style=color:#66d9ef>extends</span> Error {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>constructor</span>(<span style=color:#a6e22e>message</span>, <span style=color:#a6e22e>code</span>, <span style=color:#a6e22e>statusCode</span> <span style=color:#f92672>=</span> <span style=color:#ae81ff>401</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>super</span>(<span style=color:#a6e22e>message</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>this</span>.<span style=color:#a6e22e>name</span> <span style=color:#f92672>=</span> <span style=color:#e6db74>&#39;SWTError&#39;</span>;
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>this</span>.<span style=color:#a6e22e>code</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>code</span>;
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>this</span>.<span style=color:#a6e22e>statusCode</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>statusCode</span>;
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>class</span> <span style=color:#a6e22e>TokenExpiredError</span> <span style=color:#66d9ef>extends</span> <span style=color:#a6e22e>SWTError</span> {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>constructor</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>super</span>(<span style=color:#e6db74>&#39;Token has expired&#39;</span>, <span style=color:#e6db74>&#39;TOKEN_EXPIRED&#39;</span>, <span style=color:#ae81ff>401</span>);
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>class</span> <span style=color:#a6e22e>InvalidSignatureError</span> <span style=color:#66d9ef>extends</span> <span style=color:#a6e22e>SWTError</span> {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>constructor</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>super</span>(<span style=color:#e6db74>&#39;Invalid token signature&#39;</span>, <span style=color:#e6db74>&#39;INVALID_SIGNATURE&#39;</span>, <span style=color:#ae81ff>401</span>);
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>class</span> <span style=color:#a6e22e>PayloadMismatchError</span> <span style=color:#66d9ef>extends</span> <span style=color:#a6e22e>SWTError</span> {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>constructor</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>super</span>(<span style=color:#e6db74>&#39;Payload hash mismatch&#39;</span>, <span style=color:#e6db74>&#39;PAYLOAD_MISMATCH&#39;</span>, <span style=color:#ae81ff>400</span>);
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>class</span> <span style=color:#a6e22e>ReplayAttackError</span> <span style=color:#66d9ef>extends</span> <span style=color:#a6e22e>SWTError</span> {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>constructor</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>super</span>(<span style=color:#e6db74>&#39;Token already used&#39;</span>, <span style=color:#e6db74>&#39;REPLAY_ATTACK&#39;</span>, <span style=color:#ae81ff>401</span>);
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h3 id=improved-validation-function>Improved Validation Function
+<a class=anchor href=#improved-validation-function>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>function</span> <span style=color:#a6e22e>validateSWT</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>payload</span>, <span style=color:#a6e22e>secret</span>) {
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>try</span> {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>decoded</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>jwt</span>.<span style=color:#a6e22e>verify</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>secret</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Check required claims
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>requiredClaims</span> <span style=color:#f92672>=</span> [<span style=color:#e6db74>&#39;webhook&#39;</span>, <span style=color:#e6db74>&#39;iss&#39;</span>, <span style=color:#e6db74>&#39;exp&#39;</span>, <span style=color:#e6db74>&#39;nbf&#39;</span>, <span style=color:#e6db74>&#39;iat&#39;</span>, <span style=color:#e6db74>&#39;jti&#39;</span>];
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>for</span> (<span style=color:#66d9ef>const</span> <span style=color:#a6e22e>claim</span> <span style=color:#66d9ef>of</span> <span style=color:#a6e22e>requiredClaims</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>if</span> (<span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>[<span style=color:#a6e22e>claim</span>]) {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>SWTError</span>(<span style=color:#e6db74>`Missing required claim: </span><span style=color:#e6db74>${</span><span style=color:#a6e22e>claim</span><span style=color:#e6db74>}</span><span style=color:#e6db74>`</span>, <span style=color:#e6db74>&#39;MISSING_CLAIM&#39;</span>, <span style=color:#ae81ff>400</span>);
+</span></span><span style=display:flex><span>      }
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Time validation
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>now</span> <span style=color:#f92672>=</span> Math.<span style=color:#a6e22e>floor</span>(Date.<span style=color:#a6e22e>now</span>() <span style=color:#f92672>/</span> <span style=color:#ae81ff>1000</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>exp</span> <span style=color:#f92672>&lt;=</span> <span style=color:#a6e22e>now</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>TokenExpiredError</span>();
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>nbf</span> <span style=color:#f92672>&gt;</span> <span style=color:#a6e22e>now</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>SWTError</span>(<span style=color:#e6db74>&#39;Token not yet valid&#39;</span>, <span style=color:#e6db74>&#39;TOKEN_NOT_YET_VALID&#39;</span>, <span style=color:#ae81ff>401</span>);
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Validate payload hash
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>payload</span> <span style=color:#f92672>&amp;&amp;</span> <span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>const</span> [<span style=color:#a6e22e>algorithm</span>, <span style=color:#a6e22e>expectedHash</span>] <span style=color:#f92672>=</span> <span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span>.<span style=color:#a6e22e>split</span>(<span style=color:#e6db74>&#39;:&#39;</span>);
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>actualHash</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>crypto</span>.<span style=color:#a6e22e>createHash</span>(<span style=color:#a6e22e>algorithm</span>)
+</span></span><span style=display:flex><span>                              .<span style=color:#a6e22e>update</span>(<span style=color:#a6e22e>JSON</span>.<span style=color:#a6e22e>stringify</span>(<span style=color:#a6e22e>payload</span>))
+</span></span><span style=display:flex><span>                              .<span style=color:#a6e22e>digest</span>(<span style=color:#e6db74>&#39;hex&#39;</span>);
+</span></span><span style=display:flex><span>      
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>actualHash</span> <span style=color:#f92672>!==</span> <span style=color:#a6e22e>expectedHash</span>) {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>PayloadMismatchError</span>();
+</span></span><span style=display:flex><span>      }
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>decoded</span>;
+</span></span><span style=display:flex><span>  } <span style=color:#66d9ef>catch</span> (<span style=color:#a6e22e>error</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>error</span> <span style=color:#66d9ef>instanceof</span> <span style=color:#a6e22e>SWTError</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#a6e22e>error</span>;
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>name</span> <span style=color:#f92672>===</span> <span style=color:#e6db74>&#39;TokenExpiredError&#39;</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>TokenExpiredError</span>();
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>name</span> <span style=color:#f92672>===</span> <span style=color:#e6db74>&#39;JsonWebTokenError&#39;</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>InvalidSignatureError</span>();
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>SWTError</span>(<span style=color:#e6db74>&#39;Unknown validation error&#39;</span>, <span style=color:#e6db74>&#39;VALIDATION_ERROR&#39;</span>, <span style=color:#ae81ff>500</span>);
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h2 id=logging-and-monitoring>Logging and Monitoring
+<a class=anchor href=#logging-and-monitoring>#</a></h2><h3 id=structured-logging>Structured Logging
+<a class=anchor href=#structured-logging>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>winston</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;winston&#39;</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>logger</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>winston</span>.<span style=color:#a6e22e>createLogger</span>({
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>level</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;info&#39;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>format</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>winston</span>.<span style=color:#a6e22e>format</span>.<span style=color:#a6e22e>combine</span>(
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>winston</span>.<span style=color:#a6e22e>format</span>.<span style=color:#a6e22e>timestamp</span>(),
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>winston</span>.<span style=color:#a6e22e>format</span>.<span style=color:#a6e22e>errors</span>({ <span style=color:#a6e22e>stack</span><span style=color:#f92672>:</span> <span style=color:#66d9ef>true</span> }),
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>winston</span>.<span style=color:#a6e22e>format</span>.<span style=color:#a6e22e>json</span>()
+</span></span><span style=display:flex><span>  ),
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>transports</span><span style=color:#f92672>:</span> [
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>winston</span>.<span style=color:#a6e22e>transports</span>.<span style=color:#a6e22e>File</span>({ <span style=color:#a6e22e>filename</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;webhook-errors.log&#39;</span>, <span style=color:#a6e22e>level</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;error&#39;</span> }),
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>winston</span>.<span style=color:#a6e22e>transports</span>.<span style=color:#a6e22e>File</span>({ <span style=color:#a6e22e>filename</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;webhook-combined.log&#39;</span> })
+</span></span><span style=display:flex><span>  ]
+</span></span><span style=display:flex><span>});
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>function</span> <span style=color:#a6e22e>logWebhookEvent</span>(<span style=color:#a6e22e>event</span>, <span style=color:#a6e22e>details</span>, <span style=color:#a6e22e>level</span> <span style=color:#f92672>=</span> <span style=color:#e6db74>&#39;info&#39;</span>) {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>logger</span>.<span style=color:#a6e22e>log</span>({
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>level</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>level</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Webhook Event&#39;</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>event</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>event</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>details</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>details</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>timestamp</span><span style=color:#f92672>:</span> <span style=color:#66d9ef>new</span> Date().<span style=color:#a6e22e>toISOString</span>()
+</span></span><span style=display:flex><span>  });
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// Usage
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span><span style=color:#66d9ef>try</span> {
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>validatedToken</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>validateSWT</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>body</span>, <span style=color:#a6e22e>SECRET_KEY</span>);
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>logWebhookEvent</span>(<span style=color:#e6db74>&#39;webhook_validated&#39;</span>, {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>event</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>validatedToken</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>event</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>jti</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>validatedToken</span>.<span style=color:#a6e22e>jti</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>issuer</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>validatedToken</span>.<span style=color:#a6e22e>iss</span>
+</span></span><span style=display:flex><span>  });
+</span></span><span style=display:flex><span>} <span style=color:#66d9ef>catch</span> (<span style=color:#a6e22e>error</span>) {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>logWebhookEvent</span>(<span style=color:#e6db74>&#39;webhook_validation_failed&#39;</span>, {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>code</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>code</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>ip</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>ip</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>userAgent</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>get</span>(<span style=color:#e6db74>&#39;User-Agent&#39;</span>)
+</span></span><span style=display:flex><span>  }, <span style=color:#e6db74>&#39;error&#39;</span>);
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h3 id=metrics-and-alerting>Metrics and Alerting
+<a class=anchor href=#metrics-and-alerting>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>prometheus</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;prom-client&#39;</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// Define metrics
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>webhookValidationCounter</span> <span style=color:#f92672>=</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>prometheus</span>.<span style=color:#a6e22e>Counter</span>({
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>name</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;webhook_validation_total&#39;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>help</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Total number of webhook validations&#39;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>labelNames</span><span style=color:#f92672>:</span> [<span style=color:#e6db74>&#39;status&#39;</span>, <span style=color:#e6db74>&#39;error_type&#39;</span>]
+</span></span><span style=display:flex><span>});
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>webhookValidationDuration</span> <span style=color:#f92672>=</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>prometheus</span>.<span style=color:#a6e22e>Histogram</span>({
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>name</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;webhook_validation_duration_seconds&#39;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>help</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Duration of webhook validation&#39;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>buckets</span><span style=color:#f92672>:</span> [<span style=color:#ae81ff>0.1</span>, <span style=color:#ae81ff>0.5</span>, <span style=color:#ae81ff>1</span>, <span style=color:#ae81ff>2</span>, <span style=color:#ae81ff>5</span>]
+</span></span><span style=display:flex><span>});
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// Use metrics
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span><span style=color:#a6e22e>app</span>.<span style=color:#a6e22e>post</span>(<span style=color:#e6db74>&#39;/webhook&#39;</span>, <span style=color:#66d9ef>async</span> (<span style=color:#a6e22e>req</span>, <span style=color:#a6e22e>res</span>) =&gt; {
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>startTime</span> <span style=color:#f92672>=</span> Date.<span style=color:#a6e22e>now</span>();
+</span></span><span style=display:flex><span>  
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>try</span> {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>validatedToken</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>validateSWT</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>body</span>, <span style=color:#a6e22e>SECRET_KEY</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhookValidationCounter</span>.<span style=color:#a6e22e>inc</span>({ <span style=color:#a6e22e>status</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;success&#39;</span>, <span style=color:#a6e22e>error_type</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;none&#39;</span> });
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>processWebhook</span>(<span style=color:#a6e22e>validatedToken</span>.<span style=color:#a6e22e>webhook</span>, <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>body</span>);
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#ae81ff>200</span>).<span style=color:#a6e22e>json</span>({ <span style=color:#a6e22e>status</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;success&#39;</span> });
+</span></span><span style=display:flex><span>  } <span style=color:#66d9ef>catch</span> (<span style=color:#a6e22e>error</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhookValidationCounter</span>.<span style=color:#a6e22e>inc</span>({ 
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>status</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;error&#39;</span>, 
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>error_type</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>code</span> <span style=color:#f92672>||</span> <span style=color:#e6db74>&#39;unknown&#39;</span> 
+</span></span><span style=display:flex><span>    });
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>res</span>.<span style=color:#a6e22e>status</span>(<span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>statusCode</span> <span style=color:#f92672>||</span> <span style=color:#ae81ff>500</span>).<span style=color:#a6e22e>json</span>({
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>code</span> <span style=color:#f92672>||</span> <span style=color:#e6db74>&#39;UNKNOWN_ERROR&#39;</span>,
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span>
+</span></span><span style=display:flex><span>    });
+</span></span><span style=display:flex><span>  } <span style=color:#66d9ef>finally</span> {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>duration</span> <span style=color:#f92672>=</span> (Date.<span style=color:#a6e22e>now</span>() <span style=color:#f92672>-</span> <span style=color:#a6e22e>startTime</span>) <span style=color:#f92672>/</span> <span style=color:#ae81ff>1000</span>;
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhookValidationDuration</span>.<span style=color:#a6e22e>observe</span>(<span style=color:#a6e22e>duration</span>);
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>});
+</span></span></code></pre></div><h2 id=rate-limiting>Rate Limiting
+<a class=anchor href=#rate-limiting>#</a></h2><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>rateLimit</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;express-rate-limit&#39;</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>webhookLimiter</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>rateLimit</span>({
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>windowMs</span><span style=color:#f92672>:</span> <span style=color:#ae81ff>15</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>60</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>1000</span>, <span style=color:#75715e>// 15 minutes
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>  <span style=color:#a6e22e>max</span><span style=color:#f92672>:</span> <span style=color:#ae81ff>100</span>, <span style=color:#75715e>// Maximum 100 requests per IP
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>  <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>error</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;RATE_LIMIT_EXCEEDED&#39;</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>message</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;Too many webhook requests&#39;</span>
+</span></span><span style=display:flex><span>  },
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>standardHeaders</span><span style=color:#f92672>:</span> <span style=color:#66d9ef>true</span>,
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>legacyHeaders</span><span style=color:#f92672>:</span> <span style=color:#66d9ef>false</span>,
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>skip</span><span style=color:#f92672>:</span> (<span style=color:#a6e22e>req</span>) =&gt; {
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Limit authenticated requests less strictly
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>token</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>headers</span>.<span style=color:#a6e22e>authorization</span><span style=color:#f92672>?</span>.<span style=color:#a6e22e>replace</span>(<span style=color:#e6db74>&#39;Bearer &#39;</span>, <span style=color:#e6db74>&#39;&#39;</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>try</span> {
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>jwt</span>.<span style=color:#a6e22e>verify</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>SECRET_KEY</span>);
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>false</span>; <span style=color:#75715e>// Don&#39;t skip, but limit less strictly
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    } <span style=color:#66d9ef>catch</span> {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>false</span>;
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>});
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#a6e22e>app</span>.<span style=color:#a6e22e>use</span>(<span style=color:#e6db74>&#39;/webhook&#39;</span>, <span style=color:#a6e22e>webhookLimiter</span>);
+</span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><a href=#error-handling>Error Handling</a><ul><li><a href=#common-validation-errors>Common Validation Errors</a></li><li><a href=#example-error-handling>Example Error Handling</a></li><li><a href=#advanced-error-handling>Advanced Error Handling</a><ul><li><a href=#define-error-classes>Define Error Classes</a></li><li><a href=#improved-validation-function>Improved Validation Function</a></li></ul></li><li><a href=#logging-and-monitoring>Logging and Monitoring</a><ul><li><a href=#structured-logging>Structured Logging</a></li><li><a href=#metrics-and-alerting>Metrics and Alerting</a></li></ul></li><li><a href=#rate-limiting>Rate Limiting</a></li></ul></li></ul></nav></div></aside></main></body></html>

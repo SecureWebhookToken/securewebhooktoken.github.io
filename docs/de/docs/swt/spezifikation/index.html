@@ -1,0 +1,141 @@
+<!doctype html><html lang=de dir=ltr><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=description content='
+  Spezifikation
+  #
+
+
+  Überblick
+  #
+
+Secure Webhook Token (SWT) ist eine spezialisierte Implementierung von JSON Web Tokens (JWT), die für die sichere Autorisierung von Webhook-Anfragen entwickelt wurde. Die Spezifikation ist darauf ausgelegt, leichtgewichtig, flexibel und kompatibel mit Standard-JWT-Strukturen zu sein.
+
+  JWT-Struktur
+  #
+
+Ein SWT besteht aus den standardmäßigen JWT-Komponenten:
+
+Header (Kopfzeile)
+Payload (Nutzdaten)
+Signature (Signatur)
+
+
+  Header-Anforderungen
+  #
+
+Der Header muss folgende Felder enthalten:
+{
+  "alg": "HS256",
+  "typ": "JWT"
+}
+
+alg: Signaturalgorithmus (typischerweise &ldquo;HS256&rdquo;)
+typ: Token-Typ (muss &ldquo;JWT&rdquo; sein)
+
+
+  Payload-Anforderungen (Claims)
+  #
+
+
+  Pflicht-Claims
+  #
+
+
+webhook: Benutzerdefinierter Claim mit event und optionalen data
+iss (Issuer): Aussteller des Tokens
+exp (Expiration): Ablaufzeit des Tokens
+nbf (Not Before): Zeitstempel, ab wann das Token gültig ist
+iat (Issued At): Zeitstempel der Token-Erstellung
+jti (JWT ID): Eindeutige Token-Identifikation
+
+
+  Beispiel Payload
+  #
+
+{
+  "webhook": {
+    "event": "user.created",
+    "data": {
+      "userId": "12345", 
+      "email": "user@example.com"
+    }
+  },
+  "iss": "webhook-service.example.com",
+  "exp": 1703952000,
+  "nbf": 1703948400, 
+  "iat": 1703948400,
+  "jti": "unique-token-id-123"
+}
+
+  Übertragungsmethoden
+  #
+
+
+  HEAD-Methode (Empfohlen)
+  #
+
+Für JSON-Nutzdaten ≤ 6kB wird die HEAD-Methode empfohlen:'><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/de/docs/swt/spezifikation/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Spezifikation"><meta property="og:description" content='Spezifikation # Überblick # Secure Webhook Token (SWT) ist eine spezialisierte Implementierung von JSON Web Tokens (JWT), die für die sichere Autorisierung von Webhook-Anfragen entwickelt wurde. Die Spezifikation ist darauf ausgelegt, leichtgewichtig, flexibel und kompatibel mit Standard-JWT-Strukturen zu sein.
+JWT-Struktur # Ein SWT besteht aus den standardmäßigen JWT-Komponenten:
+Header (Kopfzeile) Payload (Nutzdaten) Signature (Signatur) Header-Anforderungen # Der Header muss folgende Felder enthalten:
+{ "alg": "HS256", "typ": "JWT" } alg: Signaturalgorithmus (typischerweise “HS256”) typ: Token-Typ (muss “JWT” sein) Payload-Anforderungen (Claims) # Pflicht-Claims # webhook: Benutzerdefinierter Claim mit event und optionalen data iss (Issuer): Aussteller des Tokens exp (Expiration): Ablaufzeit des Tokens nbf (Not Before): Zeitstempel, ab wann das Token gültig ist iat (Issued At): Zeitstempel der Token-Erstellung jti (JWT ID): Eindeutige Token-Identifikation Beispiel Payload # { "webhook": { "event": "user.created", "data": { "userId": "12345", "email": "user@example.com" } }, "iss": "webhook-service.example.com", "exp": 1703952000, "nbf": 1703948400, "iat": 1703948400, "jti": "unique-token-id-123" } Übertragungsmethoden # HEAD-Methode (Empfohlen) # Für JSON-Nutzdaten ≤ 6kB wird die HEAD-Methode empfohlen:'><meta property="og:locale" content="de"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-06-19T18:43:06+02:00"><title>Spezifikation | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/de/docs/swt/spezifikation/><link rel=stylesheet href=/book.min.e47103a2785905b5db8438d6a609c05371af6c90eabdc369de60b296f8bba830.css integrity="sha256-5HEDonhZBbXbhDjWpgnAU3GvbJDqvcNp3mCylvi7qDA=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/de.search.min.362119e7125d9531d9571b21dacc5d41fdedc1a5a5f4b2aa0a82fab9f99ecf1a.js integrity="sha256-NiEZ5xJdlTHZVxsh2sxdQf3twaWl9LKqCoL6ufmezxo=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+<input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/de/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Suche aria-label=Suche maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
+<label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
+Deutsch</a></label><ul><li><a href=/>English</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/de/docs/swt/spezifikation/ class=active>Spezifikation</a></li><li><a href=/de/docs/swt/sicherheit/>Sicherheitsrichtlinien</a></li><li><a href=/de/docs/swt/fehlerbehandlung/>Fehlerbehandlung</a></li><li><a href=/de/docs/swt/implementations/>Implementierungen</a><ul><li><input type=checkbox id=section-662907ecad7151acc97bce84919cfe26 class=toggle>
+<label for=section-662907ecad7151acc97bce84919cfe26 class=flex><a role=button class=flex-auto>Beispiele</a></label><ul><li><span>Go</span><ul><li><a href=/de/docs/swt/implementations/examples/go/client-side-token-generation/>Client-seitige Token-Generierung</a></li></ul></li><li><span>JavaScript</span><ul><li><a href=/de/docs/swt/implementations/examples/js/client-side-token-generation/>Client-seitige Token-Generierung</a></li><li><a href=/de/docs/swt/implementations/examples/js/replay-protection/>Replay-Schutz mit Redis</a></li><li><a href=/de/docs/swt/implementations/examples/js/server-side-validation/>Server-seitige Validierung</a></li><li><a href=/de/docs/swt/implementations/examples/js/webhook-handler/>Webhook-Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/de/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Spezifikation</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><a href=#spezifikation>Spezifikation</a><ul><li><a href=#überblick>Überblick</a></li><li><a href=#jwt-struktur>JWT-Struktur</a><ul><li><a href=#header-anforderungen>Header-Anforderungen</a></li><li><a href=#payload-anforderungen-claims>Payload-Anforderungen (Claims)</a></li></ul></li><li><a href=#übertragungsmethoden>Übertragungsmethoden</a><ul><li><a href=#head-methode-empfohlen>HEAD-Methode (Empfohlen)</a></li><li><a href=#post-methode>POST-Methode</a></li></ul></li><li><a href=#hash-algorithmen>Hash-Algorithmen</a><ul><li><a href=#beispiel-mit-payload-hash>Beispiel mit Payload-Hash</a></li></ul></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h1 id=spezifikation>Spezifikation
+<a class=anchor href=#spezifikation>#</a></h1><h2 id=überblick>Überblick
+<a class=anchor href=#%c3%bcberblick>#</a></h2><p>Secure Webhook Token (SWT) ist eine spezialisierte Implementierung von JSON Web Tokens (JWT), die für die sichere Autorisierung von Webhook-Anfragen entwickelt wurde. Die Spezifikation ist darauf ausgelegt, leichtgewichtig, flexibel und kompatibel mit Standard-JWT-Strukturen zu sein.</p><h2 id=jwt-struktur>JWT-Struktur
+<a class=anchor href=#jwt-struktur>#</a></h2><p>Ein SWT besteht aus den standardmäßigen JWT-Komponenten:</p><ol><li><strong>Header</strong> (Kopfzeile)</li><li><strong>Payload</strong> (Nutzdaten)</li><li><strong>Signature</strong> (Signatur)</li></ol><h3 id=header-anforderungen>Header-Anforderungen
+<a class=anchor href=#header-anforderungen>#</a></h3><p>Der Header muss folgende Felder enthalten:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;alg&#34;</span>: <span style=color:#e6db74>&#34;HS256&#34;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;typ&#34;</span>: <span style=color:#e6db74>&#34;JWT&#34;</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><ul><li><code>alg</code>: Signaturalgorithmus (typischerweise &ldquo;HS256&rdquo;)</li><li><code>typ</code>: Token-Typ (muss &ldquo;JWT&rdquo; sein)</li></ul><h3 id=payload-anforderungen-claims>Payload-Anforderungen (Claims)
+<a class=anchor href=#payload-anforderungen-claims>#</a></h3><h4 id=pflicht-claims>Pflicht-Claims
+<a class=anchor href=#pflicht-claims>#</a></h4><ul><li><strong><code>webhook</code></strong>: Benutzerdefinierter Claim mit <code>event</code> und optionalen <code>data</code></li><li><strong><code>iss</code></strong> (Issuer): Aussteller des Tokens</li><li><strong><code>exp</code></strong> (Expiration): Ablaufzeit des Tokens</li><li><strong><code>nbf</code></strong> (Not Before): Zeitstempel, ab wann das Token gültig ist</li><li><strong><code>iat</code></strong> (Issued At): Zeitstempel der Token-Erstellung</li><li><strong><code>jti</code></strong> (JWT ID): Eindeutige Token-Identifikation</li></ul><h4 id=beispiel-payload>Beispiel Payload
+<a class=anchor href=#beispiel-payload>#</a></h4><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;webhook&#34;</span>: {
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;event&#34;</span>: <span style=color:#e6db74>&#34;user.created&#34;</span>,
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;data&#34;</span>: {
+</span></span><span style=display:flex><span>      <span style=color:#f92672>&#34;userId&#34;</span>: <span style=color:#e6db74>&#34;12345&#34;</span>, 
+</span></span><span style=display:flex><span>      <span style=color:#f92672>&#34;email&#34;</span>: <span style=color:#e6db74>&#34;user@example.com&#34;</span>
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>  },
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iss&#34;</span>: <span style=color:#e6db74>&#34;webhook-service.example.com&#34;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;exp&#34;</span>: <span style=color:#ae81ff>1703952000</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;nbf&#34;</span>: <span style=color:#ae81ff>1703948400</span>, 
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iat&#34;</span>: <span style=color:#ae81ff>1703948400</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;jti&#34;</span>: <span style=color:#e6db74>&#34;unique-token-id-123&#34;</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h2 id=übertragungsmethoden>Übertragungsmethoden
+<a class=anchor href=#%c3%bcbertragungsmethoden>#</a></h2><h3 id=head-methode-empfohlen>HEAD-Methode (Empfohlen)
+<a class=anchor href=#head-methode-empfohlen>#</a></h3><p>Für JSON-Nutzdaten ≤ 6kB wird die HEAD-Methode empfohlen:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-http data-lang=http><span style=display:flex><span><span style=color:#a6e22e>HEAD</span> /webhook-endpoint <span style=color:#66d9ef>HTTP</span><span style=color:#f92672>/</span><span style=color:#ae81ff>1.1</span>
+</span></span><span style=display:flex><span>Host<span style=color:#f92672>:</span> <span style=color:#ae81ff>api.example.com</span>
+</span></span><span style=display:flex><span>Authorization<span style=color:#f92672>:</span> <span style=color:#ae81ff>Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</span>
+</span></span><span style=display:flex><span>Content-Type<span style=color:#f92672>:</span> <span style=color:#ae81ff>application/json</span>
+</span></span><span style=display:flex><span>Content-Length<span style=color:#f92672>:</span> <span style=color:#ae81ff>245</span>
+</span></span></code></pre></div><h3 id=post-methode>POST-Methode
+<a class=anchor href=#post-methode>#</a></h3><p>Für größere Nutzdaten oder Nicht-JSON-Inhalte:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-http data-lang=http><span style=display:flex><span><span style=color:#a6e22e>POST</span> /webhook-endpoint <span style=color:#66d9ef>HTTP</span><span style=color:#f92672>/</span><span style=color:#ae81ff>1.1</span>
+</span></span><span style=display:flex><span>Host<span style=color:#f92672>:</span> <span style=color:#ae81ff>api.example.com</span>
+</span></span><span style=display:flex><span>Authorization<span style=color:#f92672>:</span> <span style=color:#ae81ff>Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</span>
+</span></span><span style=display:flex><span>Content-Type<span style=color:#f92672>:</span> <span style=color:#ae81ff>application/json</span>
+</span></span><span style=display:flex><span>Content-Length<span style=color:#f92672>:</span> <span style=color:#ae81ff>8192</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>{
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;userId&#34;</span>: <span style=color:#e6db74>&#34;12345&#34;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;email&#34;</span>: <span style=color:#e6db74>&#34;user@example.com&#34;</span>, 
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;profile&#34;</span>: {
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;name&#34;</span>: <span style=color:#e6db74>&#34;Max Mustermann&#34;</span>,
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;address&#34;</span>: <span style=color:#e6db74>&#34;...&#34;</span>
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h2 id=hash-algorithmen>Hash-Algorithmen
+<a class=anchor href=#hash-algorithmen>#</a></h2><p>Die Spezifikation unterstützt folgende Hash-Algorithmen für die Payload-Validierung:</p><ul><li><strong>SHA-2 Familie</strong>: sha256, sha384, sha512</li><li><strong>SHA-3 Familie</strong>: sha3-256, sha3-384, sha3-512</li></ul><h3 id=beispiel-mit-payload-hash>Beispiel mit Payload-Hash
+<a class=anchor href=#beispiel-mit-payload-hash>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;webhook&#34;</span>: {
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;event&#34;</span>: <span style=color:#e6db74>&#34;user.updated&#34;</span>,
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;hash&#34;</span>: <span style=color:#e6db74>&#34;sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3&#34;</span>
+</span></span><span style=display:flex><span>  },
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iss&#34;</span>: <span style=color:#e6db74>&#34;webhook-service.example.com&#34;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;exp&#34;</span>: <span style=color:#ae81ff>1703952000</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iat&#34;</span>: <span style=color:#ae81ff>1703948400</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;jti&#34;</span>: <span style=color:#e6db74>&#34;token-456&#34;</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><a href=#spezifikation>Spezifikation</a><ul><li><a href=#überblick>Überblick</a></li><li><a href=#jwt-struktur>JWT-Struktur</a><ul><li><a href=#header-anforderungen>Header-Anforderungen</a></li><li><a href=#payload-anforderungen-claims>Payload-Anforderungen (Claims)</a></li></ul></li><li><a href=#übertragungsmethoden>Übertragungsmethoden</a><ul><li><a href=#head-methode-empfohlen>HEAD-Methode (Empfohlen)</a></li><li><a href=#post-methode>POST-Methode</a></li></ul></li><li><a href=#hash-algorithmen>Hash-Algorithmen</a><ul><li><a href=#beispiel-mit-payload-hash>Beispiel mit Payload-Hash</a></li></ul></li></ul></li></ul></nav></div></aside></main></body></html>

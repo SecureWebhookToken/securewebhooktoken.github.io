@@ -1,0 +1,68 @@
+<!doctype html><html lang=en dir=ltr><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=description content="
+  Replay Protection with Redis
+  #
+
+const redis = require('redis');
+const client = redis.createClient();
+
+class RedisReplayProtection {
+  constructor(redisClient) {
+    this.redis = redisClient;
+  }
+  
+  async checkAndAddToken(jti, expiration) {
+    const exists = await this.redis.exists(`swt:${jti}`);
+    if (exists) {
+      throw new Error('Token already used (replay attack)');
+    }
+    
+    const ttl = expiration - Math.floor(Date.now() / 1000);
+    if (ttl > 0) {
+      await this.redis.setex(`swt:${jti}`, ttl, '1');
+    }
+  }
+}
+
+// Usage
+const replayProtection = new RedisReplayProtection(client);
+
+async function validateSWTWithReplayProtection(token, payload, secret) {
+  const decoded = validateSWT(token, payload, secret);
+  await replayProtection.checkAndAddToken(decoded.jti, decoded.exp);
+  return decoded;
+}
+"><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/replay-protection/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Replay Protection with Redis"><meta property="og:description" content="Replay Protection with Redis # const redis = require('redis'); const client = redis.createClient(); class RedisReplayProtection { constructor(redisClient) { this.redis = redisClient; } async checkAndAddToken(jti, expiration) { const exists = await this.redis.exists(`swt:${jti}`); if (exists) { throw new Error('Token already used (replay attack)'); } const ttl = expiration - Math.floor(Date.now() / 1000); if (ttl > 0) { await this.redis.setex(`swt:${jti}`, ttl, '1'); } } } // Usage const replayProtection = new RedisReplayProtection(client); async function validateSWTWithReplayProtection(token, payload, secret) { const decoded = validateSWT(token, payload, secret); await replayProtection.checkAndAddToken(decoded.jti, decoded.exp); return decoded; }"><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-06-19T18:43:06+02:00"><title>Replay Protection with Redis | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/replay-protection/><link rel=alternate hreflang=de href=https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/js/replay-protection/ title="Replay-Schutz mit Redis"><link rel=stylesheet href=/book.min.e47103a2785905b5db8438d6a609c05371af6c90eabdc369de60b296f8bba830.css integrity="sha256-5HEDonhZBbXbhDjWpgnAU3GvbJDqvcNp3mCylvi7qDA=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.5d822ab351e748f176dd3f9681aa026c870fa82687758d87c2188762e3e8af38.js integrity="sha256-XYIqs1HnSPF23T+WgaoCbIcPqCaHdY2HwhiHYuPorzg=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+<input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Search aria-label=Search maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
+<label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
+English</a></label><ul><li><a href=/de/docs/swt/implementations/examples/js/replay-protection/>Deutsch</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/docs/swt/specification/>Specification</a></li><li><a href=/docs/swt/security/>Security Guidelines</a></li><li><a href=/docs/swt/error-handling/>Error Handling</a></li><li><a href=/docs/swt/implementations/>Implementations</a><ul><li><input type=checkbox id=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=toggle checked>
+<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/ class=active>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Replay Protection with Redis</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><a href=#replay-protection-with-redis>Replay Protection with Redis</a></li></ul></nav></aside></header><article class="markdown book-article"><h1 id=replay-protection-with-redis>Replay Protection with Redis
+<a class=anchor href=#replay-protection-with-redis>#</a></h1><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>redis</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;redis&#39;</span>);
+</span></span><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>client</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>redis</span>.<span style=color:#a6e22e>createClient</span>();
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>class</span> <span style=color:#a6e22e>RedisReplayProtection</span> {
+</span></span><span style=display:flex><span>  <span style=color:#a6e22e>constructor</span>(<span style=color:#a6e22e>redisClient</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>this</span>.<span style=color:#a6e22e>redis</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>redisClient</span>;
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>  
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>async</span> <span style=color:#a6e22e>checkAndAddToken</span>(<span style=color:#a6e22e>jti</span>, <span style=color:#a6e22e>expiration</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>exists</span> <span style=color:#f92672>=</span> <span style=color:#66d9ef>await</span> <span style=color:#66d9ef>this</span>.<span style=color:#a6e22e>redis</span>.<span style=color:#a6e22e>exists</span>(<span style=color:#e6db74>`swt:</span><span style=color:#e6db74>${</span><span style=color:#a6e22e>jti</span><span style=color:#e6db74>}</span><span style=color:#e6db74>`</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>exists</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Token already used (replay attack)&#39;</span>);
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>ttl</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>expiration</span> <span style=color:#f92672>-</span> Math.<span style=color:#a6e22e>floor</span>(Date.<span style=color:#a6e22e>now</span>() <span style=color:#f92672>/</span> <span style=color:#ae81ff>1000</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>ttl</span> <span style=color:#f92672>&gt;</span> <span style=color:#ae81ff>0</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>await</span> <span style=color:#66d9ef>this</span>.<span style=color:#a6e22e>redis</span>.<span style=color:#a6e22e>setex</span>(<span style=color:#e6db74>`swt:</span><span style=color:#e6db74>${</span><span style=color:#a6e22e>jti</span><span style=color:#e6db74>}</span><span style=color:#e6db74>`</span>, <span style=color:#a6e22e>ttl</span>, <span style=color:#e6db74>&#39;1&#39;</span>);
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// Usage
+</span></span></span><span style=display:flex><span><span style=color:#75715e></span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>replayProtection</span> <span style=color:#f92672>=</span> <span style=color:#66d9ef>new</span> <span style=color:#a6e22e>RedisReplayProtection</span>(<span style=color:#a6e22e>client</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>async</span> <span style=color:#66d9ef>function</span> <span style=color:#a6e22e>validateSWTWithReplayProtection</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>payload</span>, <span style=color:#a6e22e>secret</span>) {
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>decoded</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>validateSWT</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>payload</span>, <span style=color:#a6e22e>secret</span>);
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>await</span> <span style=color:#a6e22e>replayProtection</span>.<span style=color:#a6e22e>checkAndAddToken</span>(<span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>jti</span>, <span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>exp</span>);
+</span></span><span style=display:flex><span>  <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>decoded</span>;
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><a href=#replay-protection-with-redis>Replay Protection with Redis</a></li></ul></nav></div></aside></main></body></html>
