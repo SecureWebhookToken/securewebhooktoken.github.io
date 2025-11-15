@@ -7,30 +7,33 @@ title: "Client-side Token Generation"
 ## Client-side Token Generation
 
 ```javascript
-// For HEAD requests (small payloads)
-function sendWebhookHEAD(endpoint, webhookData, secret) {
-  const token = createSWT(webhookData, null, secret);
-  
-  return fetch(endpoint, {
-    method: 'HEAD',
-    headers: {
-      'Authorization': `Bearer ${token}`,
-      'Content-Type': 'application/json'
-    }
-  });
-}
+// Send webhook with POST (required by SWT specification)
+function sendWebhook(endpoint, event, payload, secret) {
+  const token = createSWT(event, payload, secret);
 
-// For POST requests (larger payloads)
-function sendWebhookPOST(endpoint, webhookData, payload, secret) {
-  const token = createSWT(webhookData, payload, secret);
-  
   return fetch(endpoint, {
     method: 'POST',
     headers: {
       'Authorization': `Bearer ${token}`,
       'Content-Type': 'application/json'
     },
-    body: JSON.stringify(payload)
+    body: payload ? JSON.stringify(payload) : ''
   });
 }
+
+// Example usage with payload
+sendWebhook(
+  'https://api.example.com/webhook',
+  'user.created',
+  { userId: '12345', email: 'user@example.com' },
+  'your-secret-key'
+);
+
+// Example usage without payload (empty body)
+sendWebhook(
+  'https://api.example.com/webhook',
+  'health.check',
+  null,
+  'your-secret-key'
+);
 ```

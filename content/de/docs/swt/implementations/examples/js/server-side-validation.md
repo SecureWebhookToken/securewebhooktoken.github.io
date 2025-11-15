@@ -14,33 +14,61 @@ const crypto = require('crypto');
 
 function validateSWT(token, payload, secret) {
   try {
-    // JWT dekodieren und validieren
-    const decoded = jwt.verify(token, secret);
-    
+    // JWT mit Algorithmus-Whitelist dekodieren und validieren
+    const decoded = jwt.verify(token, secret, {
+      algorithms: ['HS256', 'HS384', 'HS512'] // Algorithmus-Whitelist
+    });
+
+    // Token-Typ als SWT verifizieren
+    const header = jwt.decode(token, { complete: true }).header;
+    if (header.typ !== 'SWT') {
+      throw new Error('Ungültiger Token-Typ - muss SWT sein');
+    }
+
     // Pflicht-Claims prüfen
-    if (!decoded.webhook || !decoded.iss || !decoded.exp || 
-        !decoded.nbf || !decoded.iat || !decoded.jti) {
+    if (!decoded.webhook || !decoded.webhook.event || !decoded.iss ||
+        !decoded.exp || !decoded.nbf || !decoded.iat || !decoded.jti) {
       throw new Error('Fehlende Pflicht-Claims');
     }
-    
-    // Zeitvalidierung
+
+    // Zeitvalidierung mit Uhrzeiten-Toleranz (~60 Sekunden)
     const now = Math.floor(Date.now() / 1000);
-    if (decoded.exp <= now || decoded.nbf > now) {
-      throw new Error('Token abgelaufen oder noch nicht gültig');
+    const clockSkew = 60;
+
+    if (decoded.exp <= (now - clockSkew)) {
+      throw new Error('Token ist abgelaufen');
     }
-    
-    // Payload-Hash validieren (falls vorhanden)
-    if (payload && decoded.webhook.hash) {
+
+    if (decoded.nbf > (now + clockSkew)) {
+      throw new Error('Token noch nicht gültig');
+    }
+
+    // Hash-Validierung basierend auf Body-Vorhandensein
+    const hasBody = payload && Object.keys(payload).length > 0;
+
+    if (hasBody) {
+      // Nicht-leerer Body: Hash-Feld ist ERFORDERLICH
+      if (!decoded.webhook.hash) {
+        throw new Error('Hash-Feld erforderlich für nicht-leeren Body');
+      }
+
       const [algorithm, expectedHash] = decoded.webhook.hash.split(':');
-      const actualHash = crypto.createHash(algorithm)
+      // Algorithmusname konvertieren (z.B., 'sha-256' zu 'sha256' für Node.js)
+      const nodeAlgorithm = algorithm.replace('-', '');
+      const actualHash = crypto.createHash(nodeAlgorithm)
                               .update(JSON.stringify(payload))
                               .digest('hex');
-      
+
       if (actualHash !== expectedHash) {
         throw new Error('Payload-Hash stimmt nicht überein');
       }
+    } else {
+      // Leerer Body: Hash-Feld MUSS fehlen
+      if (decoded.webhook.hash) {
+        throw new Error('Hash-Feld muss bei leerem Body fehlen');
+      }
     }
-    
+
     return decoded;
   } catch (error) {
     throw new Error(`SWT-Validierung fehlgeschlagen: ${error.message}`);
@@ -54,29 +82,43 @@ function validateSWT(token, payload, secret) {
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
-function createSWT(webhookData, payload, secret) {
+function createSWT(event, payload, secret, options = {}) {
   const now = Math.floor(Date.now() / 1000);
-  
+
   const claims = {
     webhook: {
-      event: webhookData.event,
-      data: webhookData.data
+      event: event
     },
-    iss: 'webhook-service.example.com',
-    exp: now + 300, // 5 Minuten gültig
+    iss: options.issuer || 'webhook-service.example.com',
+    exp: now + (options.expiresIn || 300), // Standard: 5 Minuten
     nbf: now,
     iat: now,
     jti: crypto.randomUUID()
   };
-  
-  // Payload-Hash hinzufügen (falls vorhanden)
-  if (payload) {
+
+  // Optionales Subject hinzufügen
+  if (options.subject) {
+    claims.sub = options.subject;
+  }
+
+  // Optionalen retry_count hinzufügen
+  if (options.retryCount !== undefined) {
+    claims.webhook.retry_count = options.retryCount;
+  }
+
+  // Payload-Hash hinzufügen, wenn Body nicht-leer ist (ERFORDERLICH gemäß Spezifikation)
+  if (payload && Object.keys(payload).length > 0) {
     const hash = crypto.createHash('sha256')
                       .update(JSON.stringify(payload))
                       .digest('hex');
-    claims.webhook.hash = `sha256:${hash}`;
+    // Standardisierten Algorithmusnamen mit Bindestrich verwenden
+    claims.webhook.hash = `sha-256:${hash}`;
   }
-  
-  return jwt.sign(claims, secret, { algorithm: 'HS256' });
+
+  // Mit typ: 'SWT' im Header signieren
+  return jwt.sign(claims, secret, {
+    algorithm: 'HS256',
+    header: { typ: 'SWT' }
+  });
 }
 ```
