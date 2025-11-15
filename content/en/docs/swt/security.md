@@ -31,51 +31,52 @@ function checkReplayProtection(jti) {
 
 ### Validate Token Timing
 ```javascript
-function validateTokenTiming(decoded) {
+function validateTokenTiming(decoded, clockSkew = 60) {
   const now = Math.floor(Date.now() / 1000);
-  
-  if (decoded.exp <= now) {
+
+  // Apply clock skew tolerance
+  if (decoded.exp <= (now - clockSkew)) {
     throw new Error('Token has expired');
   }
-  
-  if (decoded.nbf > now) {
+
+  if (decoded.nbf > (now + clockSkew)) {
     throw new Error('Token is not yet valid');
   }
 }
 ```
 
-### JSON Web Signatures (JWS)
+### Signature Algorithms
 - **Required**: All tokens must be signed
-- **Recommended algorithms**: HS256, RS256, ES256
-
-### JSON Web Encryption (JWE)
-- **Optional**: Recommended for sensitive data
-- **Algorithms**: A256GCM, A256CBC-HS512
+- **Algorithm allowlist**: Implementations MUST maintain an allowlist of approved algorithms
+- **Reject "none"**: Always reject tokens with algorithm "none"
+- **Recommended algorithms**: HS256, HS384, HS512 (HMAC variants) for balance of security and performance
+- **Alternative algorithms**: RS256, ES256 may be used when asymmetric cryptography is required
 
 ## Validation Requirements
 
-### HEAD Requests
-```
-1. Validate JWT signature
-2. Check token expiration  
-3. Verify issuer
-4. Perform replay protection
-```
+All SWT tokens must be transmitted via HTTP POST. The validation workflow is:
 
-### POST Requests  
 ```
-1. Validate JWT signature
-2. Check token expiration
-3. Verify payload hash
-4. Validate Content-Length
-5. Perform replay protection
+1. Verify JWT signature and structure
+2. Verify token type is SWT (typ: "SWT")
+3. Validate standard claims (exp, nbf, iat, iss, jti)
+4. Verify algorithm is on allowlist (reject "none")
+5. Confirm webhook claim exists with event field
+6. For non-empty request bodies:
+   - Verify hash field exists in webhook claim
+   - Compute hash of request body
+   - Verify computed hash matches token hash value
+7. For empty request bodies:
+   - Verify hash field is absent from webhook claim
+8. Perform replay protection (verify jti not used)
 ```
 
 ## Best Practices
 
 ### Token Lifetime
-- **Short validity period**: Maximum 5-15 minutes
-- **Appropriate nbf time**: 1-2 minutes before current time for clock skew
+- **Short validity period**: Typically no more than 15 minutes
+- **Clock skew tolerance**: Approximately 60 seconds for time validation
+- **Minimum TLS version**: TLS 1.2+ (TLS 1.3 recommended)
 
 ### Replay Protection
 - **JTI tracking**: Store already used token IDs
