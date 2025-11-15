@@ -3,6 +3,8 @@
 
 ### Hugo template
 # Generated files by hugo
+/app/
+/public/
 /resources/_gen/
 /assets/jsconfig.json
 hugo_stats.json

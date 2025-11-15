@@ -18,7 +18,7 @@ Hier ist eine Liste mit Implementierungen in verschiedenen Programmiersprachen.
 
 ## Go
 
-- [SecureWebhookToken (SWT)](https://github.com/securewebhooktoken/swt)
+- [SecureWebhookToken (SWT)](https://github.com/securewebhooktoken/swt): A reference implementation for the [draft](https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/) which can easily be used in own projects to implement the client and server side of the Secure Webhook Token.
 
 ## JS
 

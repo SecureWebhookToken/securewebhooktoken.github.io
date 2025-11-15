@@ -6,7 +6,7 @@
   Overview
   #
 
-Secure Webhook Token (SWT) is a specialized implementation of JSON Web Tokens (JWT) designed for secure authorization of webhook requests. The specification is designed to be lightweight, flexible, and compatible with standard JWT structures.
+The Secure Webhook Token (SWT) is a specialized JSON Web Token (JWT) format designed for securely authorizing and verifying webhook requests. This specification defines the structure, transmission method, and validation requirements for SWT.
 
   JWT Structure
   #
@@ -21,14 +21,14 @@ Signature
   Header Requirements
   #
 
-The header must contain the following fields:
+The header MUST contain the following fields:
 {
   "alg": "HS256",
-  "typ": "JWT"
+  "typ": "SWT"
 }
 
-alg: Signature algorithm (typically &ldquo;HS256&rdquo;)
-typ: Token type (must be &ldquo;JWT&rdquo;)
+alg: Signature algorithm (HS256, HS384, HS512, RS256, or ES256)
+typ: Token type (MUST be &ldquo;SWT&rdquo; to distinguish from generic JWTs)
 
 
   Payload Requirements (Claims)
@@ -39,103 +39,126 @@ typ: Token type (must be &ldquo;JWT&rdquo;)
   #
 
 
-webhook: Custom claim with event and optional data
-iss (Issuer): Token issuer
-exp (Expiration): Token expiration time
+webhook: Custom claim containing:
+
+event: String describing the webhook event type (e.g., &ldquo;payment.received&rdquo;)
+hash: Cryptographic hash of the request body (REQUIRED when body is non-empty, MUST be absent for empty bodies)
+retry_count: (Optional) Non-negative integer indicating delivery attempt number
+
+
+iss (Issuer): Token issuer identifier
+exp (Expiration): Token expiration timestamp
 nbf (Not Before): Timestamp from when the token is valid
 iat (Issued At): Token creation timestamp
-jti (JWT ID): Unique token identification
+jti (JWT ID): Unique token identifier (UUID recommended)
 
 
-  Example Payload
+  Optional Claims
+  #
+
+
+sub (Subject): Subject identifier
+
+
+  Example Payload with Body Hash
   #
 
 {
   "webhook": {
     "event": "user.created",
-    "data": {
-      "userId": "12345", 
-      "email": "user@example.com"
-    }
+    "hash": "sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
   },
   "iss": "webhook-service.example.com",
   "exp": 1703952000,
-  "nbf": 1703948400, 
+  "nbf": 1703948400,
   "iat": 1703948400,
-  "jti": "unique-token-id-123"
+  "jti": "550e8400-e29b-41d4-a716-446655440000",
+  "sub": "user-12345"
 }
 
-  Transmission Methods
+  Example Payload without Body (Empty Request)
   #
 
+{
+  "webhook": {
+    "event": "health.check"
+  },
+  "iss": "webhook-service.example.com",
+  "exp": 1703952000,
+  "nbf": 1703948400,
+  "iat": 1703948400,
+  "jti": "550e8400-e29b-41d4-a716-446655440001"
+}
 
-  HEAD Method (Recommended)
+  Transmission Method
   #
 
-For JSON payloads ≤ 6kB, the HEAD method is recommended:'><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/specification/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Specification"><meta property="og:description" content='Specification # Overview # Secure Webhook Token (SWT) is a specialized implementation of JSON Web Tokens (JWT) designed for secure authorization of webhook requests. The specification is designed to be lightweight, flexible, and compatible with standard JWT structures.
+SWT tokens MUST be transmitted using HTTP POST with the token in the Authorization header using the Bearer scheme:'><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/specification/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Specification"><meta property="og:description" content='Specification # Overview # The Secure Webhook Token (SWT) is a specialized JSON Web Token (JWT) format designed for securely authorizing and verifying webhook requests. This specification defines the structure, transmission method, and validation requirements for SWT.
 JWT Structure # An SWT consists of the standard JWT components:
-Header Payload Signature Header Requirements # The header must contain the following fields:
-{ "alg": "HS256", "typ": "JWT" } alg: Signature algorithm (typically “HS256”) typ: Token type (must be “JWT”) Payload Requirements (Claims) # Required Claims # webhook: Custom claim with event and optional data iss (Issuer): Token issuer exp (Expiration): Token expiration time nbf (Not Before): Timestamp from when the token is valid iat (Issued At): Token creation timestamp jti (JWT ID): Unique token identification Example Payload # { "webhook": { "event": "user.created", "data": { "userId": "12345", "email": "user@example.com" } }, "iss": "webhook-service.example.com", "exp": 1703952000, "nbf": 1703948400, "iat": 1703948400, "jti": "unique-token-id-123" } Transmission Methods # HEAD Method (Recommended) # For JSON payloads ≤ 6kB, the HEAD method is recommended:'><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-06-19T18:43:06+02:00"><title>Specification | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/specification/><link rel=stylesheet href=/book.min.e47103a2785905b5db8438d6a609c05371af6c90eabdc369de60b296f8bba830.css integrity="sha256-5HEDonhZBbXbhDjWpgnAU3GvbJDqvcNp3mCylvi7qDA=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.5d822ab351e748f176dd3f9681aa026c870fa82687758d87c2188762e3e8af38.js integrity="sha256-XYIqs1HnSPF23T+WgaoCbIcPqCaHdY2HwhiHYuPorzg=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+Header Payload Signature Header Requirements # The header MUST contain the following fields:
+{ "alg": "HS256", "typ": "SWT" } alg: Signature algorithm (HS256, HS384, HS512, RS256, or ES256) typ: Token type (MUST be “SWT” to distinguish from generic JWTs) Payload Requirements (Claims) # Required Claims # webhook: Custom claim containing: event: String describing the webhook event type (e.g., “payment.received”) hash: Cryptographic hash of the request body (REQUIRED when body is non-empty, MUST be absent for empty bodies) retry_count: (Optional) Non-negative integer indicating delivery attempt number iss (Issuer): Token issuer identifier exp (Expiration): Token expiration timestamp nbf (Not Before): Timestamp from when the token is valid iat (Issued At): Token creation timestamp jti (JWT ID): Unique token identifier (UUID recommended) Optional Claims # sub (Subject): Subject identifier Example Payload with Body Hash # { "webhook": { "event": "user.created", "hash": "sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3" }, "iss": "webhook-service.example.com", "exp": 1703952000, "nbf": 1703948400, "iat": 1703948400, "jti": "550e8400-e29b-41d4-a716-446655440000", "sub": "user-12345" } Example Payload without Body (Empty Request) # { "webhook": { "event": "health.check" }, "iss": "webhook-service.example.com", "exp": 1703952000, "nbf": 1703948400, "iat": 1703948400, "jti": "550e8400-e29b-41d4-a716-446655440001" } Transmission Method # SWT tokens MUST be transmitted using HTTP POST with the token in the Authorization header using the Bearer scheme:'><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-11-15T10:43:39+01:00"><title>Specification | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/specification/><link rel=stylesheet href=/book.min.935b6804af02f1c15a26e161cfab1051a99f1fe72b2cc2624b504f554ce08f4c.css integrity="sha256-k1toBK8C8cFaJuFhz6sQUamfH+crLMJiS1BPVUzgj0w=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.93f2800a396e934993fe403d9c77c9ea19b660f798215ba6af08a982f7e3ef10.js integrity="sha256-k/KACjluk0mT/kA9nHfJ6hm2YPeYIVumrwipgvfj7xA=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
 <input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Search aria-label=Search maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
 <label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
 English</a></label><ul><li><a href=/de/>Deutsch</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/docs/swt/specification/ class=active>Specification</a></li><li><a href=/docs/swt/security/>Security Guidelines</a></li><li><a href=/docs/swt/error-handling/>Error Handling</a></li><li><a href=/docs/swt/implementations/>Implementations</a><ul><li><input type=checkbox id=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=toggle>
-<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Specification</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><a href=#specification>Specification</a><ul><li><a href=#overview>Overview</a></li><li><a href=#jwt-structure>JWT Structure</a><ul><li><a href=#header-requirements>Header Requirements</a></li><li><a href=#payload-requirements-claims>Payload Requirements (Claims)</a></li></ul></li><li><a href=#transmission-methods>Transmission Methods</a><ul><li><a href=#head-method-recommended>HEAD Method (Recommended)</a></li><li><a href=#post-method>POST Method</a></li></ul></li><li><a href=#hash-algorithms>Hash Algorithms</a><ul><li><a href=#example-with-payload-hash>Example with Payload Hash</a></li></ul></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h1 id=specification>Specification
+<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Specification</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><a href=#specification>Specification</a><ul><li><a href=#overview>Overview</a></li><li><a href=#jwt-structure>JWT Structure</a><ul><li><a href=#header-requirements>Header Requirements</a></li><li><a href=#payload-requirements-claims>Payload Requirements (Claims)</a></li></ul></li><li><a href=#transmission-method>Transmission Method</a></li><li><a href=#hash-format-and-algorithms>Hash Format and Algorithms</a><ul><li><a href=#hash-format>Hash Format</a></li><li><a href=#supported-hash-algorithms>Supported Hash Algorithms</a></li><li><a href=#recommended-algorithms>Recommended Algorithms</a></li></ul></li><li><a href=#security-requirements>Security Requirements</a><ul><li><a href=#transport-security>Transport Security</a></li><li><a href=#signature-verification>Signature Verification</a></li><li><a href=#replay-protection>Replay Protection</a></li><li><a href=#time-validation>Time Validation</a></li><li><a href=#key-management>Key Management</a></li></ul></li><li><a href=#validation-workflow>Validation Workflow</a></li><li><a href=#error-response-codes>Error Response Codes</a></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h1 id=specification>Specification
 <a class=anchor href=#specification>#</a></h1><h2 id=overview>Overview
-<a class=anchor href=#overview>#</a></h2><p>Secure Webhook Token (SWT) is a specialized implementation of JSON Web Tokens (JWT) designed for secure authorization of webhook requests. The specification is designed to be lightweight, flexible, and compatible with standard JWT structures.</p><h2 id=jwt-structure>JWT Structure
+<a class=anchor href=#overview>#</a></h2><p>The Secure Webhook Token (SWT) is a specialized JSON Web Token (JWT) format designed for securely authorizing and verifying webhook requests. This specification defines the structure, transmission method, and validation requirements for SWT.</p><h2 id=jwt-structure>JWT Structure
 <a class=anchor href=#jwt-structure>#</a></h2><p>An SWT consists of the standard JWT components:</p><ol><li><strong>Header</strong></li><li><strong>Payload</strong></li><li><strong>Signature</strong></li></ol><h3 id=header-requirements>Header Requirements
-<a class=anchor href=#header-requirements>#</a></h3><p>The header must contain the following fields:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
+<a class=anchor href=#header-requirements>#</a></h3><p>The header MUST contain the following fields:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
 </span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;alg&#34;</span>: <span style=color:#e6db74>&#34;HS256&#34;</span>,
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;typ&#34;</span>: <span style=color:#e6db74>&#34;JWT&#34;</span>
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;typ&#34;</span>: <span style=color:#e6db74>&#34;SWT&#34;</span>
 </span></span><span style=display:flex><span>}
-</span></span></code></pre></div><ul><li><code>alg</code>: Signature algorithm (typically &ldquo;HS256&rdquo;)</li><li><code>typ</code>: Token type (must be &ldquo;JWT&rdquo;)</li></ul><h3 id=payload-requirements-claims>Payload Requirements (Claims)
+</span></span></code></pre></div><ul><li><strong><code>alg</code></strong>: Signature algorithm (HS256, HS384, HS512, RS256, or ES256)</li><li><strong><code>typ</code></strong>: Token type (MUST be &ldquo;SWT&rdquo; to distinguish from generic JWTs)</li></ul><h3 id=payload-requirements-claims>Payload Requirements (Claims)
 <a class=anchor href=#payload-requirements-claims>#</a></h3><h4 id=required-claims>Required Claims
-<a class=anchor href=#required-claims>#</a></h4><ul><li><strong><code>webhook</code></strong>: Custom claim with <code>event</code> and optional <code>data</code></li><li><strong><code>iss</code></strong> (Issuer): Token issuer</li><li><strong><code>exp</code></strong> (Expiration): Token expiration time</li><li><strong><code>nbf</code></strong> (Not Before): Timestamp from when the token is valid</li><li><strong><code>iat</code></strong> (Issued At): Token creation timestamp</li><li><strong><code>jti</code></strong> (JWT ID): Unique token identification</li></ul><h4 id=example-payload>Example Payload
-<a class=anchor href=#example-payload>#</a></h4><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
+<a class=anchor href=#required-claims>#</a></h4><ul><li><strong><code>webhook</code></strong>: Custom claim containing:<ul><li><strong><code>event</code></strong>: String describing the webhook event type (e.g., &ldquo;payment.received&rdquo;)</li><li><strong><code>hash</code></strong>: Cryptographic hash of the request body (REQUIRED when body is non-empty, MUST be absent for empty bodies)</li><li><strong><code>retry_count</code></strong>: (Optional) Non-negative integer indicating delivery attempt number</li></ul></li><li><strong><code>iss</code></strong> (Issuer): Token issuer identifier</li><li><strong><code>exp</code></strong> (Expiration): Token expiration timestamp</li><li><strong><code>nbf</code></strong> (Not Before): Timestamp from when the token is valid</li><li><strong><code>iat</code></strong> (Issued At): Token creation timestamp</li><li><strong><code>jti</code></strong> (JWT ID): Unique token identifier (UUID recommended)</li></ul><h4 id=optional-claims>Optional Claims
+<a class=anchor href=#optional-claims>#</a></h4><ul><li><strong><code>sub</code></strong> (Subject): Subject identifier</li></ul><h4 id=example-payload-with-body-hash>Example Payload with Body Hash
+<a class=anchor href=#example-payload-with-body-hash>#</a></h4><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
 </span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;webhook&#34;</span>: {
 </span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;event&#34;</span>: <span style=color:#e6db74>&#34;user.created&#34;</span>,
-</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;data&#34;</span>: {
-</span></span><span style=display:flex><span>      <span style=color:#f92672>&#34;userId&#34;</span>: <span style=color:#e6db74>&#34;12345&#34;</span>, 
-</span></span><span style=display:flex><span>      <span style=color:#f92672>&#34;email&#34;</span>: <span style=color:#e6db74>&#34;user@example.com&#34;</span>
-</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;hash&#34;</span>: <span style=color:#e6db74>&#34;sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3&#34;</span>
 </span></span><span style=display:flex><span>  },
 </span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iss&#34;</span>: <span style=color:#e6db74>&#34;webhook-service.example.com&#34;</span>,
 </span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;exp&#34;</span>: <span style=color:#ae81ff>1703952000</span>,
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;nbf&#34;</span>: <span style=color:#ae81ff>1703948400</span>, 
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;nbf&#34;</span>: <span style=color:#ae81ff>1703948400</span>,
 </span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iat&#34;</span>: <span style=color:#ae81ff>1703948400</span>,
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;jti&#34;</span>: <span style=color:#e6db74>&#34;unique-token-id-123&#34;</span>
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;jti&#34;</span>: <span style=color:#e6db74>&#34;550e8400-e29b-41d4-a716-446655440000&#34;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;sub&#34;</span>: <span style=color:#e6db74>&#34;user-12345&#34;</span>
 </span></span><span style=display:flex><span>}
-</span></span></code></pre></div><h2 id=transmission-methods>Transmission Methods
-<a class=anchor href=#transmission-methods>#</a></h2><h3 id=head-method-recommended>HEAD Method (Recommended)
-<a class=anchor href=#head-method-recommended>#</a></h3><p>For JSON payloads ≤ 6kB, the HEAD method is recommended:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-http data-lang=http><span style=display:flex><span><span style=color:#a6e22e>HEAD</span> /webhook-endpoint <span style=color:#66d9ef>HTTP</span><span style=color:#f92672>/</span><span style=color:#ae81ff>1.1</span>
+</span></span></code></pre></div><h4 id=example-payload-without-body-empty-request>Example Payload without Body (Empty Request)
+<a class=anchor href=#example-payload-without-body-empty-request>#</a></h4><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;webhook&#34;</span>: {
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;event&#34;</span>: <span style=color:#e6db74>&#34;health.check&#34;</span>
+</span></span><span style=display:flex><span>  },
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iss&#34;</span>: <span style=color:#e6db74>&#34;webhook-service.example.com&#34;</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;exp&#34;</span>: <span style=color:#ae81ff>1703952000</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;nbf&#34;</span>: <span style=color:#ae81ff>1703948400</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iat&#34;</span>: <span style=color:#ae81ff>1703948400</span>,
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;jti&#34;</span>: <span style=color:#e6db74>&#34;550e8400-e29b-41d4-a716-446655440001&#34;</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h2 id=transmission-method>Transmission Method
+<a class=anchor href=#transmission-method>#</a></h2><p>SWT tokens MUST be transmitted using HTTP POST with the token in the Authorization header using the Bearer scheme:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-http data-lang=http><span style=display:flex><span><span style=color:#a6e22e>POST</span> /webhook-endpoint <span style=color:#66d9ef>HTTP</span><span style=color:#f92672>/</span><span style=color:#ae81ff>1.1</span>
 </span></span><span style=display:flex><span>Host<span style=color:#f92672>:</span> <span style=color:#ae81ff>api.example.com</span>
-</span></span><span style=display:flex><span>Authorization<span style=color:#f92672>:</span> <span style=color:#ae81ff>Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</span>
+</span></span><span style=display:flex><span>Authorization<span style=color:#f92672>:</span> <span style=color:#ae81ff>Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IlNXVCJ9...</span>
 </span></span><span style=display:flex><span>Content-Type<span style=color:#f92672>:</span> <span style=color:#ae81ff>application/json</span>
 </span></span><span style=display:flex><span>Content-Length<span style=color:#f92672>:</span> <span style=color:#ae81ff>245</span>
-</span></span></code></pre></div><h3 id=post-method>POST Method
-<a class=anchor href=#post-method>#</a></h3><p>For larger payloads or non-JSON content:</p><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-http data-lang=http><span style=display:flex><span><span style=color:#a6e22e>POST</span> /webhook-endpoint <span style=color:#66d9ef>HTTP</span><span style=color:#f92672>/</span><span style=color:#ae81ff>1.1</span>
-</span></span><span style=display:flex><span>Host<span style=color:#f92672>:</span> <span style=color:#ae81ff>api.example.com</span>
-</span></span><span style=display:flex><span>Authorization<span style=color:#f92672>:</span> <span style=color:#ae81ff>Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...</span>
-</span></span><span style=display:flex><span>Content-Type<span style=color:#f92672>:</span> <span style=color:#ae81ff>application/json</span>
-</span></span><span style=display:flex><span>Content-Length<span style=color:#f92672>:</span> <span style=color:#ae81ff>8192</span>
 </span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>{
 </span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;userId&#34;</span>: <span style=color:#e6db74>&#34;12345&#34;</span>,
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;email&#34;</span>: <span style=color:#e6db74>&#34;user@example.com&#34;</span>, 
+</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;email&#34;</span>: <span style=color:#e6db74>&#34;user@example.com&#34;</span>,
 </span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;profile&#34;</span>: {
-</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;name&#34;</span>: <span style=color:#e6db74>&#34;John Doe&#34;</span>,
-</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;address&#34;</span>: <span style=color:#e6db74>&#34;...&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;name&#34;</span>: <span style=color:#e6db74>&#34;John Doe&#34;</span>
 </span></span><span style=display:flex><span>  }
 </span></span><span style=display:flex><span>}
-</span></span></code></pre></div><h2 id=hash-algorithms>Hash Algorithms
-<a class=anchor href=#hash-algorithms>#</a></h2><p>The specification supports the following hash algorithms for payload validation:</p><ul><li><strong>SHA-2 family</strong>: sha256, sha384, sha512</li><li><strong>SHA-3 family</strong>: sha3-256, sha3-384, sha3-512</li></ul><h3 id=example-with-payload-hash>Example with Payload Hash
-<a class=anchor href=#example-with-payload-hash>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-json data-lang=json><span style=display:flex><span>{
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;webhook&#34;</span>: {
-</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;event&#34;</span>: <span style=color:#e6db74>&#34;user.updated&#34;</span>,
-</span></span><span style=display:flex><span>    <span style=color:#f92672>&#34;hash&#34;</span>: <span style=color:#e6db74>&#34;sha256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3&#34;</span>
-</span></span><span style=display:flex><span>  },
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iss&#34;</span>: <span style=color:#e6db74>&#34;webhook-service.example.com&#34;</span>,
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;exp&#34;</span>: <span style=color:#ae81ff>1703952000</span>,
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;iat&#34;</span>: <span style=color:#ae81ff>1703948400</span>,
-</span></span><span style=display:flex><span>  <span style=color:#f92672>&#34;jti&#34;</span>: <span style=color:#e6db74>&#34;token-456&#34;</span>
-</span></span><span style=display:flex><span>}
-</span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><a href=#specification>Specification</a><ul><li><a href=#overview>Overview</a></li><li><a href=#jwt-structure>JWT Structure</a><ul><li><a href=#header-requirements>Header Requirements</a></li><li><a href=#payload-requirements-claims>Payload Requirements (Claims)</a></li></ul></li><li><a href=#transmission-methods>Transmission Methods</a><ul><li><a href=#head-method-recommended>HEAD Method (Recommended)</a></li><li><a href=#post-method>POST Method</a></li></ul></li><li><a href=#hash-algorithms>Hash Algorithms</a><ul><li><a href=#example-with-payload-hash>Example with Payload Hash</a></li></ul></li></ul></li></ul></nav></div></aside></main></body></html>
+</span></span></code></pre></div><h2 id=hash-format-and-algorithms>Hash Format and Algorithms
+<a class=anchor href=#hash-format-and-algorithms>#</a></h2><h3 id=hash-format>Hash Format
+<a class=anchor href=#hash-format>#</a></h3><p>The hash field follows the pattern: <code>"&lt;algorithm>:&lt;hex_value>"</code> where:</p><ul><li><strong>algorithm</strong>: Standardized algorithm name (e.g., &ldquo;sha-256&rdquo;, &ldquo;sha-512&rdquo;)</li><li><strong>hex_value</strong>: Hexadecimal encoding of the hash (REQUIRED for interoperability)</li></ul><h3 id=supported-hash-algorithms>Supported Hash Algorithms
+<a class=anchor href=#supported-hash-algorithms>#</a></h3><p>The specification supports the following hash algorithms:</p><ul><li><strong>SHA-2 family</strong>: sha-256, sha-384, sha-512</li><li><strong>SHA-3 family</strong>: sha3-256, sha3-384, sha3-512</li></ul><h3 id=recommended-algorithms>Recommended Algorithms
+<a class=anchor href=#recommended-algorithms>#</a></h3><p><strong>HS256, HS384, and HS512</strong> (HMAC variants) are recommended for their balance between security and performance. RS256 and ES256 may be used when asymmetric cryptography is required.</p><h2 id=security-requirements>Security Requirements
+<a class=anchor href=#security-requirements>#</a></h2><h3 id=transport-security>Transport Security
+<a class=anchor href=#transport-security>#</a></h3><p><strong>HTTPS is REQUIRED</strong> for all SWT transmissions. The minimum TLS version is 1.2, with TLS 1.3 recommended.</p><h3 id=signature-verification>Signature Verification
+<a class=anchor href=#signature-verification>#</a></h3><p>Receivers MUST verify the JWT signature before processing any claims. Implementations MUST:</p><ul><li>Maintain an allowlist of approved signature algorithms</li><li>Reject tokens with non-approved algorithms, including &ldquo;none&rdquo;</li></ul><h3 id=replay-protection>Replay Protection
+<a class=anchor href=#replay-protection>#</a></h3><p>Each <code>jti</code> value MUST only be accepted once within the token&rsquo;s validity period. Implementations should:</p><ul><li>Track used <code>jti</code> values</li><li>Implement TTL-based cleanup to remove expired tokens from storage</li></ul><h3 id=time-validation>Time Validation
+<a class=anchor href=#time-validation>#</a></h3><p>Implementations should:</p><ul><li>Allow approximately 60 seconds of clock skew tolerance</li><li>Reject tokens where current time is before <code>nbf</code> or after <code>exp</code></li><li>Limit token lifetime to typically no more than 15 minutes</li></ul><h3 id=key-management>Key Management
+<a class=anchor href=#key-management>#</a></h3><ul><li><strong>Symmetric keys</strong>: Require minimum 256 bits of entropy</li><li><strong>Private keys</strong>: Implement appropriate access controls and secure storage</li></ul><h2 id=validation-workflow>Validation Workflow
+<a class=anchor href=#validation-workflow>#</a></h2><p>Receivers MUST validate tokens in the following order:</p><ol><li>Verify JWT signature and structure</li><li>Validate standard claims (<code>exp</code>, <code>nbf</code>, <code>iat</code>, <code>iss</code>, <code>jti</code>)</li><li>Confirm <code>webhook</code> claim exists and contains <code>event</code> field</li><li>For non-empty request bodies:<ul><li>Verify <code>hash</code> field exists in <code>webhook</code> claim</li><li>Compute hash of request body</li><li>Verify computed hash matches token hash value</li></ul></li><li>For empty request bodies:<ul><li>Verify <code>hash</code> field is absent from <code>webhook</code> claim</li></ul></li><li>Check replay protection (verify <code>jti</code> has not been used)</li></ol><h2 id=error-response-codes>Error Response Codes
+<a class=anchor href=#error-response-codes>#</a></h2><p>Implementations SHOULD return appropriate HTTP status codes:</p><ul><li><strong>400 Bad Request</strong>: Malformed token structure or hash mismatch</li><li><strong>401 Unauthorized</strong>: Signature verification failure or expired token</li><li><strong>403 Forbidden</strong>: Valid token but insufficient permissions</li></ul></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><a href=#specification>Specification</a><ul><li><a href=#overview>Overview</a></li><li><a href=#jwt-structure>JWT Structure</a><ul><li><a href=#header-requirements>Header Requirements</a></li><li><a href=#payload-requirements-claims>Payload Requirements (Claims)</a></li></ul></li><li><a href=#transmission-method>Transmission Method</a></li><li><a href=#hash-format-and-algorithms>Hash Format and Algorithms</a><ul><li><a href=#hash-format>Hash Format</a></li><li><a href=#supported-hash-algorithms>Supported Hash Algorithms</a></li><li><a href=#recommended-algorithms>Recommended Algorithms</a></li></ul></li><li><a href=#security-requirements>Security Requirements</a><ul><li><a href=#transport-security>Transport Security</a></li><li><a href=#signature-verification>Signature Verification</a></li><li><a href=#replay-protection>Replay Protection</a></li><li><a href=#time-validation>Time Validation</a></li><li><a href=#key-management>Key Management</a></li></ul></li><li><a href=#validation-workflow>Validation Workflow</a></li><li><a href=#error-response-codes>Error Response Codes</a></li></ul></li></ul></nav></div></aside></main></body></html>
