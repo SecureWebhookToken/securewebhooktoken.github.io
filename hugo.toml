@@ -2,6 +2,7 @@ baseURL = 'https://securewebhooktoken.github.io'
 languageCode = 'en-us'
 title = 'Secure Webhook Token'
 theme = 'hugo-book'
+googleAnalytics = 'G-NJ3XM81KF3'
 
 # Book configuration
 disablePathToLower = true
