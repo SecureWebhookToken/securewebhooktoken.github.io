@@ -7,59 +7,155 @@ import hashlib
 import json
 import time
 import uuid
-from datetime import datetime, timedelta
 
-def create_swt(webhook_data, payload=None, secret=None):
+def create_swt(event, payload=None, secret=None, issuer='webhook-service.example.com',
+               expires_in=300, subject=None, retry_count=None):
+    &#34;&#34;&#34;
+    Erstellt einen Secure Webhook Token (SWT).
+
+    Args:
+        event: Webhook-Ereignistyp (z.B. 'user.created')
+        payload: Request-Body-Daten (dict oder None für leeren Body)
+        secret: Geheimer Schlüssel zur Signierung
+        issuer: Token-Aussteller-Identifikator
+        expires_in: Token-Lebensdauer in Sekunden (Standard: 300 = 5 Minuten)
+        subject: Optionaler Subject-Identifikator
+        retry_count: Optionale Wiederholungsversuchsnummer
+    &#34;&#34;&#34;
     now = int(time.time())
-    
+
     claims = {
         'webhook': {
-            'event': webhook_data['event'],
-            'data': webhook_data.get('data', {})
+            'event': event
         },
-        'iss': 'webhook-service.example.com',
-        'exp': now + 300,  # 5 Minuten gültig
+        'iss': issuer,
+        'exp': now + expires_in,
         'nbf': now,
         'iat': now,
         'jti': str(uuid.uuid4())
     }
-    
-    # Payload-Hash hinzufügen falls vorhanden
-    if payload:
+
+    # Optionales Subject hinzufügen
+    if subject:
+        claims['sub'] = subject
+
+    # Optionalen retry_count hinzufügen
+    if retry_count is not None:
+        claims['webhook']['retry_count'] = retry_count
+
+    # Payload-Hash hinzufügen, wenn Body nicht-leer ist (ERFORDERLICH gemäß Spezifikation)
+    if payload and len(payload) > 0:
         payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
         hash_obj = hashlib.sha256(payload_str.encode('utf-8'))
-        claims['webhook']['hash'] = f&#34;sha256:{hash_obj.hexdigest()}&#34;
-    
-    return jwt.encode(claims, secret, algorithm='HS256')
+        # Standardisierten Algorithmusnamen mit Bindestrich verwenden
+        claims['webhook']['hash'] = f&#34;sha-256:{hash_obj.hexdigest()}&#34;
 
-def validate_swt(token, payload=None, secret=None):
+    # Mit typ: 'SWT' im Header signieren
+    return jwt.encode(claims, secret, algorithm='HS256', headers={'typ': 'SWT'})
+
+
+def validate_swt(token, payload=None, secret=None, clock_skew=60):
+    &#34;&#34;&#34;
+    Validiert einen Secure Webhook Token (SWT).
+
+    Args:
+        token: JWT-Token-String
+        payload: Request-Body-Daten (dict oder None für leeren Body)
+        secret: Geheimer Schlüssel zur Verifizierung
+        clock_skew: Uhrzeiten-Toleranz in Sekunden (Standard: 60)
+    &#34;&#34;&#34;
     try:
-        decoded = jwt.decode(token, secret, algorithms=['HS256'])
-        
+        # Header dekodieren, um Token-Typ zu prüfen
+        header = jwt.get_unverified_header(token)
+        if header.get('typ') != 'SWT':
+            raise ValueError('Ungültiger Token-Typ - muss SWT sein')
+
+        # JWT mit Algorithmus-Whitelist dekodieren und validieren
+        decoded = jwt.decode(
+            token,
+            secret,
+            algorithms=['HS256', 'HS384', 'HS512'],
+            options={
+                'verify_signature': True,
+                'verify_exp': True,
+                'verify_nbf': True,
+                'verify_iat': True,
+                'leeway': clock_skew  # Uhrzeiten-Toleranz
+            }
+        )
+
         # Pflicht-Claims prüfen
-        required_claims = ['webhook', 'iss', 'exp', 'nbf', 'iat', 'jti']
+        if 'webhook' not in decoded or 'event' not in decoded['webhook']:
+            raise ValueError('Fehlender webhook.event Claim')
+
+        required_claims = ['iss', 'exp', 'nbf', 'iat', 'jti']
         for claim in required_claims:
             if claim not in decoded:
                 raise ValueError(f'Fehlender Pflicht-Claim: {claim}')
-        
-        # Payload-Hash validieren falls vorhanden
-        if payload and 'hash' in decoded['webhook']:
+
+        # Hash-Validierung basierend auf Body-Vorhandensein
+        has_body = payload and len(payload) > 0
+
+        if has_body:
+            # Nicht-leerer Body: Hash-Feld ist ERFORDERLICH
+            if 'hash' not in decoded['webhook']:
+                raise ValueError('Hash-Feld erforderlich für nicht-leeren Body')
+
             algorithm, expected_hash = decoded['webhook']['hash'].split(':')
             payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True)
-            
-            if algorithm == 'sha256':
+
+            # Standardisierten Algorithmusnamen konvertieren (z.B. 'sha-256') zu Python-Namen
+            if algorithm == 'sha-256':
                 actual_hash = hashlib.sha256(payload_str.encode('utf-8')).hexdigest()
+            elif algorithm == 'sha-384':
+                actual_hash = hashlib.sha384(payload_str.encode('utf-8')).hexdigest()
+            elif algorithm == 'sha-512':
+                actual_hash = hashlib.sha512(payload_str.encode('utf-8')).hexdigest()
             else:
                 raise ValueError(f'Ununterstützter Hash-Algorithmus: {algorithm}')
-            
+
             if actual_hash != expected_hash:
                 raise ValueError('Payload-Hash stimmt nicht überein')
-        
+        else:
+            # Leerer Body: Hash-Feld MUSS fehlen
+            if 'hash' in decoded['webhook']:
+                raise ValueError('Hash-Feld muss bei leerem Body fehlen')
+
         return decoded
-    
+
     except jwt.InvalidTokenError as e:
         raise ValueError(f'SWT-Validierung fehlgeschlagen: {str(e)}')
-"><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Create & Validate Secure Webhook Token"><meta property="og:description" content="Create & Validate Secure Webhook Token # import jwt import hashlib import json import time import uuid from datetime import datetime, timedelta def create_swt(webhook_data, payload=None, secret=None): now = int(time.time()) claims = { 'webhook': { 'event': webhook_data['event'], 'data': webhook_data.get('data', {}) }, 'iss': 'webhook-service.example.com', 'exp': now + 300, # 5 Minuten gültig 'nbf': now, 'iat': now, 'jti': str(uuid.uuid4()) } # Payload-Hash hinzufügen falls vorhanden if payload: payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True) hash_obj = hashlib.sha256(payload_str.encode('utf-8')) claims['webhook']['hash'] = f&#34;sha256:{hash_obj.hexdigest()}&#34; return jwt.encode(claims, secret, algorithm='HS256') def validate_swt(token, payload=None, secret=None): try: decoded = jwt.decode(token, secret, algorithms=['HS256']) # Pflicht-Claims prüfen required_claims = ['webhook', 'iss', 'exp', 'nbf', 'iat', 'jti'] for claim in required_claims: if claim not in decoded: raise ValueError(f'Fehlender Pflicht-Claim: {claim}') # Payload-Hash validieren falls vorhanden if payload and 'hash' in decoded['webhook']: algorithm, expected_hash = decoded['webhook']['hash'].split(':') payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True) if algorithm == 'sha256': actual_hash = hashlib.sha256(payload_str.encode('utf-8')).hexdigest() else: raise ValueError(f'Ununterstützter Hash-Algorithmus: {algorithm}') if actual_hash != expected_hash: raise ValueError('Payload-Hash stimmt nicht überein') return decoded except jwt.InvalidTokenError as e: raise ValueError(f'SWT-Validierung fehlgeschlagen: {str(e)}')"><meta property="og:locale" content="de"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-06-19T18:43:06+02:00"><title>Create & Validate Secure Webhook Token | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/><link rel=alternate hreflang=en href=https://securewebhooktoken.github.io/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/ title="Create & Validate Secure Webhook Token"><link rel=stylesheet href=/book.min.935b6804af02f1c15a26e161cfab1051a99f1fe72b2cc2624b504f554ce08f4c.css integrity="sha256-k1toBK8C8cFaJuFhz6sQUamfH+crLMJiS1BPVUzgj0w=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/de.search.min.9a79830776cf9cd689f0a8c69bd749d380fd14470c0a263fd368f0552dfd22cc.js integrity="sha256-mnmDB3bPnNaJ8KjGm9dJ04D9FEcMCiY/02jwVS39Isw=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+
+
+# Beispiel-Verwendung
+if __name__ == '__main__':
+    SECRET = 'your-secret-key'
+
+    # Token mit Payload erstellen
+    token_with_payload = create_swt(
+        event='user.created',
+        payload={'userId': '12345', 'email': 'user@example.com'},
+        secret=SECRET,
+        subject='user-12345'
+    )
+    print(f&#34;Token mit Payload: {token_with_payload}&#34;)
+
+    # Token ohne Payload erstellen
+    token_empty = create_swt(
+        event='health.check',
+        payload=None,
+        secret=SECRET
+    )
+    print(f&#34;Token ohne Payload: {token_empty}&#34;)
+
+    # Token validieren
+    validated = validate_swt(
+        token_with_payload,
+        payload={'userId': '12345', 'email': 'user@example.com'},
+        secret=SECRET
+    )
+    print(f&#34;Validierter Token: {validated}&#34;)
+"><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Create & Validate Secure Webhook Token"><meta property="og:description" content="Create & Validate Secure Webhook Token # import jwt import hashlib import json import time import uuid def create_swt(event, payload=None, secret=None, issuer='webhook-service.example.com', expires_in=300, subject=None, retry_count=None): &#34;&#34;&#34; Erstellt einen Secure Webhook Token (SWT). Args: event: Webhook-Ereignistyp (z.B. 'user.created') payload: Request-Body-Daten (dict oder None für leeren Body) secret: Geheimer Schlüssel zur Signierung issuer: Token-Aussteller-Identifikator expires_in: Token-Lebensdauer in Sekunden (Standard: 300 = 5 Minuten) subject: Optionaler Subject-Identifikator retry_count: Optionale Wiederholungsversuchsnummer &#34;&#34;&#34; now = int(time.time()) claims = { 'webhook': { 'event': event }, 'iss': issuer, 'exp': now + expires_in, 'nbf': now, 'iat': now, 'jti': str(uuid.uuid4()) } # Optionales Subject hinzufügen if subject: claims['sub'] = subject # Optionalen retry_count hinzufügen if retry_count is not None: claims['webhook']['retry_count'] = retry_count # Payload-Hash hinzufügen, wenn Body nicht-leer ist (ERFORDERLICH gemäß Spezifikation) if payload and len(payload) > 0: payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True) hash_obj = hashlib.sha256(payload_str.encode('utf-8')) # Standardisierten Algorithmusnamen mit Bindestrich verwenden claims['webhook']['hash'] = f&#34;sha-256:{hash_obj.hexdigest()}&#34; # Mit typ: 'SWT' im Header signieren return jwt.encode(claims, secret, algorithm='HS256', headers={'typ': 'SWT'}) def validate_swt(token, payload=None, secret=None, clock_skew=60): &#34;&#34;&#34; Validiert einen Secure Webhook Token (SWT). Args: token: JWT-Token-String payload: Request-Body-Daten (dict oder None für leeren Body) secret: Geheimer Schlüssel zur Verifizierung clock_skew: Uhrzeiten-Toleranz in Sekunden (Standard: 60) &#34;&#34;&#34; try: # Header dekodieren, um Token-Typ zu prüfen header = jwt.get_unverified_header(token) if header.get('typ') != 'SWT': raise ValueError('Ungültiger Token-Typ - muss SWT sein') # JWT mit Algorithmus-Whitelist dekodieren und validieren decoded = jwt.decode( token, secret, algorithms=['HS256', 'HS384', 'HS512'], options={ 'verify_signature': True, 'verify_exp': True, 'verify_nbf': True, 'verify_iat': True, 'leeway': clock_skew # Uhrzeiten-Toleranz } ) # Pflicht-Claims prüfen if 'webhook' not in decoded or 'event' not in decoded['webhook']: raise ValueError('Fehlender webhook.event Claim') required_claims = ['iss', 'exp', 'nbf', 'iat', 'jti'] for claim in required_claims: if claim not in decoded: raise ValueError(f'Fehlender Pflicht-Claim: {claim}') # Hash-Validierung basierend auf Body-Vorhandensein has_body = payload and len(payload) > 0 if has_body: # Nicht-leerer Body: Hash-Feld ist ERFORDERLICH if 'hash' not in decoded['webhook']: raise ValueError('Hash-Feld erforderlich für nicht-leeren Body') algorithm, expected_hash = decoded['webhook']['hash'].split(':') payload_str = json.dumps(payload, separators=(',', ':'), sort_keys=True) # Standardisierten Algorithmusnamen konvertieren (z.B. 'sha-256') zu Python-Namen if algorithm == 'sha-256': actual_hash = hashlib.sha256(payload_str.encode('utf-8')).hexdigest() elif algorithm == 'sha-384': actual_hash = hashlib.sha384(payload_str.encode('utf-8')).hexdigest() elif algorithm == 'sha-512': actual_hash = hashlib.sha512(payload_str.encode('utf-8')).hexdigest() else: raise ValueError(f'Ununterstützter Hash-Algorithmus: {algorithm}') if actual_hash != expected_hash: raise ValueError('Payload-Hash stimmt nicht überein') else: # Leerer Body: Hash-Feld MUSS fehlen if 'hash' in decoded['webhook']: raise ValueError('Hash-Feld muss bei leerem Body fehlen') return decoded except jwt.InvalidTokenError as e: raise ValueError(f'SWT-Validierung fehlgeschlagen: {str(e)}') # Beispiel-Verwendung if __name__ == '__main__': SECRET = 'your-secret-key' # Token mit Payload erstellen token_with_payload = create_swt( event='user.created', payload={'userId': '12345', 'email': 'user@example.com'}, secret=SECRET, subject='user-12345' ) print(f&#34;Token mit Payload: {token_with_payload}&#34;) # Token ohne Payload erstellen token_empty = create_swt( event='health.check', payload=None, secret=SECRET ) print(f&#34;Token ohne Payload: {token_empty}&#34;) # Token validieren validated = validate_swt( token_with_payload, payload={'userId': '12345', 'email': 'user@example.com'}, secret=SECRET ) print(f&#34;Validierter Token: {validated}&#34;)"><meta property="og:locale" content="de"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-11-15T14:13:59+01:00"><title>Create & Validate Secure Webhook Token | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/><link rel=alternate hreflang=en href=https://securewebhooktoken.github.io/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/ title="Create & Validate Secure Webhook Token"><link rel=stylesheet href=/book.min.935b6804af02f1c15a26e161cfab1051a99f1fe72b2cc2624b504f554ce08f4c.css integrity="sha256-k1toBK8C8cFaJuFhz6sQUamfH+crLMJiS1BPVUzgj0w=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/de.search.min.e725622a71e169dcdb1aa30ff89d7eff9926528595febe781907b4fdc3e119fe.js integrity="sha256-5yViKnHhadzbGqMP+J1+/5kmUoWV/r54GQe0/cPhGf4=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
 <input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/de/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Suche aria-label=Suche maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
 <label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
 Deutsch</a></label><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>English</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/de/docs/swt/spezifikation/>Spezifikation</a></li><li><a href=/de/docs/swt/sicherheit/>Sicherheitsrichtlinien</a></li><li><a href=/de/docs/swt/fehlerbehandlung/>Fehlerbehandlung</a></li><li><a href=/de/docs/swt/implementations/>Implementierungen</a><ul><li><input type=checkbox id=section-662907ecad7151acc97bce84919cfe26 class=toggle checked>
@@ -69,56 +165,152 @@ Deutsch</a></label><ul><li><a href=/docs/swt/implementations/examples/python/cre
 </span></span><span style=display:flex><span><span style=color:#f92672>import</span> json
 </span></span><span style=display:flex><span><span style=color:#f92672>import</span> time
 </span></span><span style=display:flex><span><span style=color:#f92672>import</span> uuid
-</span></span><span style=display:flex><span><span style=color:#f92672>from</span> datetime <span style=color:#f92672>import</span> datetime, timedelta
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>def</span> <span style=color:#a6e22e>create_swt</span>(webhook_data, payload<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>, secret<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>):
+</span></span><span style=display:flex><span><span style=color:#66d9ef>def</span> <span style=color:#a6e22e>create_swt</span>(event, payload<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>, secret<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>, issuer<span style=color:#f92672>=</span><span style=color:#e6db74>&#39;webhook-service.example.com&#39;</span>,
+</span></span><span style=display:flex><span>               expires_in<span style=color:#f92672>=</span><span style=color:#ae81ff>300</span>, subject<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>, retry_count<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>):
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;&#34;&#34;
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    Erstellt einen Secure Webhook Token (SWT).
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    Args:
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        event: Webhook-Ereignistyp (z.B. &#39;user.created&#39;)
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        payload: Request-Body-Daten (dict oder None für leeren Body)
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        secret: Geheimer Schlüssel zur Signierung
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        issuer: Token-Aussteller-Identifikator
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        expires_in: Token-Lebensdauer in Sekunden (Standard: 300 = 5 Minuten)
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        subject: Optionaler Subject-Identifikator
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        retry_count: Optionale Wiederholungsversuchsnummer
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    &#34;&#34;&#34;</span>
 </span></span><span style=display:flex><span>    now <span style=color:#f92672>=</span> int(time<span style=color:#f92672>.</span>time())
-</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>    claims <span style=color:#f92672>=</span> {
 </span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;webhook&#39;</span>: {
-</span></span><span style=display:flex><span>            <span style=color:#e6db74>&#39;event&#39;</span>: webhook_data[<span style=color:#e6db74>&#39;event&#39;</span>],
-</span></span><span style=display:flex><span>            <span style=color:#e6db74>&#39;data&#39;</span>: webhook_data<span style=color:#f92672>.</span>get(<span style=color:#e6db74>&#39;data&#39;</span>, {})
+</span></span><span style=display:flex><span>            <span style=color:#e6db74>&#39;event&#39;</span>: event
 </span></span><span style=display:flex><span>        },
-</span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;iss&#39;</span>: <span style=color:#e6db74>&#39;webhook-service.example.com&#39;</span>,
-</span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;exp&#39;</span>: now <span style=color:#f92672>+</span> <span style=color:#ae81ff>300</span>,  <span style=color:#75715e># 5 Minuten gültig</span>
+</span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;iss&#39;</span>: issuer,
+</span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;exp&#39;</span>: now <span style=color:#f92672>+</span> expires_in,
 </span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;nbf&#39;</span>: now,
 </span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;iat&#39;</span>: now,
 </span></span><span style=display:flex><span>        <span style=color:#e6db74>&#39;jti&#39;</span>: str(uuid<span style=color:#f92672>.</span>uuid4())
 </span></span><span style=display:flex><span>    }
-</span></span><span style=display:flex><span>    
-</span></span><span style=display:flex><span>    <span style=color:#75715e># Payload-Hash hinzufügen falls vorhanden</span>
-</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> payload:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e># Optionales Subject hinzufügen</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> subject:
+</span></span><span style=display:flex><span>        claims[<span style=color:#e6db74>&#39;sub&#39;</span>] <span style=color:#f92672>=</span> subject
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e># Optionalen retry_count hinzufügen</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> retry_count <span style=color:#f92672>is</span> <span style=color:#f92672>not</span> <span style=color:#66d9ef>None</span>:
+</span></span><span style=display:flex><span>        claims[<span style=color:#e6db74>&#39;webhook&#39;</span>][<span style=color:#e6db74>&#39;retry_count&#39;</span>] <span style=color:#f92672>=</span> retry_count
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e># Payload-Hash hinzufügen, wenn Body nicht-leer ist (ERFORDERLICH gemäß Spezifikation)</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> payload <span style=color:#f92672>and</span> len(payload) <span style=color:#f92672>&gt;</span> <span style=color:#ae81ff>0</span>:
 </span></span><span style=display:flex><span>        payload_str <span style=color:#f92672>=</span> json<span style=color:#f92672>.</span>dumps(payload, separators<span style=color:#f92672>=</span>(<span style=color:#e6db74>&#39;,&#39;</span>, <span style=color:#e6db74>&#39;:&#39;</span>), sort_keys<span style=color:#f92672>=</span><span style=color:#66d9ef>True</span>)
 </span></span><span style=display:flex><span>        hash_obj <span style=color:#f92672>=</span> hashlib<span style=color:#f92672>.</span>sha256(payload_str<span style=color:#f92672>.</span>encode(<span style=color:#e6db74>&#39;utf-8&#39;</span>))
-</span></span><span style=display:flex><span>        claims[<span style=color:#e6db74>&#39;webhook&#39;</span>][<span style=color:#e6db74>&#39;hash&#39;</span>] <span style=color:#f92672>=</span> <span style=color:#e6db74>f</span><span style=color:#e6db74>&#34;sha256:</span><span style=color:#e6db74>{</span>hash_obj<span style=color:#f92672>.</span>hexdigest()<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>
-</span></span><span style=display:flex><span>    
-</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> jwt<span style=color:#f92672>.</span>encode(claims, secret, algorithm<span style=color:#f92672>=</span><span style=color:#e6db74>&#39;HS256&#39;</span>)
+</span></span><span style=display:flex><span>        <span style=color:#75715e># Standardisierten Algorithmusnamen mit Bindestrich verwenden</span>
+</span></span><span style=display:flex><span>        claims[<span style=color:#e6db74>&#39;webhook&#39;</span>][<span style=color:#e6db74>&#39;hash&#39;</span>] <span style=color:#f92672>=</span> <span style=color:#e6db74>f</span><span style=color:#e6db74>&#34;sha-256:</span><span style=color:#e6db74>{</span>hash_obj<span style=color:#f92672>.</span>hexdigest()<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>def</span> <span style=color:#a6e22e>validate_swt</span>(token, payload<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>, secret<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>):
+</span></span><span style=display:flex><span>    <span style=color:#75715e># Mit typ: &#39;SWT&#39; im Header signieren</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> jwt<span style=color:#f92672>.</span>encode(claims, secret, algorithm<span style=color:#f92672>=</span><span style=color:#e6db74>&#39;HS256&#39;</span>, headers<span style=color:#f92672>=</span>{<span style=color:#e6db74>&#39;typ&#39;</span>: <span style=color:#e6db74>&#39;SWT&#39;</span>})
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>def</span> <span style=color:#a6e22e>validate_swt</span>(token, payload<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>, secret<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>, clock_skew<span style=color:#f92672>=</span><span style=color:#ae81ff>60</span>):
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;&#34;&#34;
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    Validiert einen Secure Webhook Token (SWT).
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    Args:
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        token: JWT-Token-String
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        payload: Request-Body-Daten (dict oder None für leeren Body)
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        secret: Geheimer Schlüssel zur Verifizierung
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        clock_skew: Uhrzeiten-Toleranz in Sekunden (Standard: 60)
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    &#34;&#34;&#34;</span>
 </span></span><span style=display:flex><span>    <span style=color:#66d9ef>try</span>:
-</span></span><span style=display:flex><span>        decoded <span style=color:#f92672>=</span> jwt<span style=color:#f92672>.</span>decode(token, secret, algorithms<span style=color:#f92672>=</span>[<span style=color:#e6db74>&#39;HS256&#39;</span>])
-</span></span><span style=display:flex><span>        
+</span></span><span style=display:flex><span>        <span style=color:#75715e># Header dekodieren, um Token-Typ zu prüfen</span>
+</span></span><span style=display:flex><span>        header <span style=color:#f92672>=</span> jwt<span style=color:#f92672>.</span>get_unverified_header(token)
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>if</span> header<span style=color:#f92672>.</span>get(<span style=color:#e6db74>&#39;typ&#39;</span>) <span style=color:#f92672>!=</span> <span style=color:#e6db74>&#39;SWT&#39;</span>:
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>&#39;Ungültiger Token-Typ - muss SWT sein&#39;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>        <span style=color:#75715e># JWT mit Algorithmus-Whitelist dekodieren und validieren</span>
+</span></span><span style=display:flex><span>        decoded <span style=color:#f92672>=</span> jwt<span style=color:#f92672>.</span>decode(
+</span></span><span style=display:flex><span>            token,
+</span></span><span style=display:flex><span>            secret,
+</span></span><span style=display:flex><span>            algorithms<span style=color:#f92672>=</span>[<span style=color:#e6db74>&#39;HS256&#39;</span>, <span style=color:#e6db74>&#39;HS384&#39;</span>, <span style=color:#e6db74>&#39;HS512&#39;</span>],
+</span></span><span style=display:flex><span>            options<span style=color:#f92672>=</span>{
+</span></span><span style=display:flex><span>                <span style=color:#e6db74>&#39;verify_signature&#39;</span>: <span style=color:#66d9ef>True</span>,
+</span></span><span style=display:flex><span>                <span style=color:#e6db74>&#39;verify_exp&#39;</span>: <span style=color:#66d9ef>True</span>,
+</span></span><span style=display:flex><span>                <span style=color:#e6db74>&#39;verify_nbf&#39;</span>: <span style=color:#66d9ef>True</span>,
+</span></span><span style=display:flex><span>                <span style=color:#e6db74>&#39;verify_iat&#39;</span>: <span style=color:#66d9ef>True</span>,
+</span></span><span style=display:flex><span>                <span style=color:#e6db74>&#39;leeway&#39;</span>: clock_skew  <span style=color:#75715e># Uhrzeiten-Toleranz</span>
+</span></span><span style=display:flex><span>            }
+</span></span><span style=display:flex><span>        )
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>        <span style=color:#75715e># Pflicht-Claims prüfen</span>
-</span></span><span style=display:flex><span>        required_claims <span style=color:#f92672>=</span> [<span style=color:#e6db74>&#39;webhook&#39;</span>, <span style=color:#e6db74>&#39;iss&#39;</span>, <span style=color:#e6db74>&#39;exp&#39;</span>, <span style=color:#e6db74>&#39;nbf&#39;</span>, <span style=color:#e6db74>&#39;iat&#39;</span>, <span style=color:#e6db74>&#39;jti&#39;</span>]
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>if</span> <span style=color:#e6db74>&#39;webhook&#39;</span> <span style=color:#f92672>not</span> <span style=color:#f92672>in</span> decoded <span style=color:#f92672>or</span> <span style=color:#e6db74>&#39;event&#39;</span> <span style=color:#f92672>not</span> <span style=color:#f92672>in</span> decoded[<span style=color:#e6db74>&#39;webhook&#39;</span>]:
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>&#39;Fehlender webhook.event Claim&#39;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>        required_claims <span style=color:#f92672>=</span> [<span style=color:#e6db74>&#39;iss&#39;</span>, <span style=color:#e6db74>&#39;exp&#39;</span>, <span style=color:#e6db74>&#39;nbf&#39;</span>, <span style=color:#e6db74>&#39;iat&#39;</span>, <span style=color:#e6db74>&#39;jti&#39;</span>]
 </span></span><span style=display:flex><span>        <span style=color:#66d9ef>for</span> claim <span style=color:#f92672>in</span> required_claims:
 </span></span><span style=display:flex><span>            <span style=color:#66d9ef>if</span> claim <span style=color:#f92672>not</span> <span style=color:#f92672>in</span> decoded:
 </span></span><span style=display:flex><span>                <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>f</span><span style=color:#e6db74>&#39;Fehlender Pflicht-Claim: </span><span style=color:#e6db74>{</span>claim<span style=color:#e6db74>}</span><span style=color:#e6db74>&#39;</span>)
-</span></span><span style=display:flex><span>        
-</span></span><span style=display:flex><span>        <span style=color:#75715e># Payload-Hash validieren falls vorhanden</span>
-</span></span><span style=display:flex><span>        <span style=color:#66d9ef>if</span> payload <span style=color:#f92672>and</span> <span style=color:#e6db74>&#39;hash&#39;</span> <span style=color:#f92672>in</span> decoded[<span style=color:#e6db74>&#39;webhook&#39;</span>]:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>        <span style=color:#75715e># Hash-Validierung basierend auf Body-Vorhandensein</span>
+</span></span><span style=display:flex><span>        has_body <span style=color:#f92672>=</span> payload <span style=color:#f92672>and</span> len(payload) <span style=color:#f92672>&gt;</span> <span style=color:#ae81ff>0</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>if</span> has_body:
+</span></span><span style=display:flex><span>            <span style=color:#75715e># Nicht-leerer Body: Hash-Feld ist ERFORDERLICH</span>
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>if</span> <span style=color:#e6db74>&#39;hash&#39;</span> <span style=color:#f92672>not</span> <span style=color:#f92672>in</span> decoded[<span style=color:#e6db74>&#39;webhook&#39;</span>]:
+</span></span><span style=display:flex><span>                <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>&#39;Hash-Feld erforderlich für nicht-leeren Body&#39;</span>)
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>            algorithm, expected_hash <span style=color:#f92672>=</span> decoded[<span style=color:#e6db74>&#39;webhook&#39;</span>][<span style=color:#e6db74>&#39;hash&#39;</span>]<span style=color:#f92672>.</span>split(<span style=color:#e6db74>&#39;:&#39;</span>)
 </span></span><span style=display:flex><span>            payload_str <span style=color:#f92672>=</span> json<span style=color:#f92672>.</span>dumps(payload, separators<span style=color:#f92672>=</span>(<span style=color:#e6db74>&#39;,&#39;</span>, <span style=color:#e6db74>&#39;:&#39;</span>), sort_keys<span style=color:#f92672>=</span><span style=color:#66d9ef>True</span>)
-</span></span><span style=display:flex><span>            
-</span></span><span style=display:flex><span>            <span style=color:#66d9ef>if</span> algorithm <span style=color:#f92672>==</span> <span style=color:#e6db74>&#39;sha256&#39;</span>:
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>            <span style=color:#75715e># Standardisierten Algorithmusnamen konvertieren (z.B. &#39;sha-256&#39;) zu Python-Namen</span>
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>if</span> algorithm <span style=color:#f92672>==</span> <span style=color:#e6db74>&#39;sha-256&#39;</span>:
 </span></span><span style=display:flex><span>                actual_hash <span style=color:#f92672>=</span> hashlib<span style=color:#f92672>.</span>sha256(payload_str<span style=color:#f92672>.</span>encode(<span style=color:#e6db74>&#39;utf-8&#39;</span>))<span style=color:#f92672>.</span>hexdigest()
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>elif</span> algorithm <span style=color:#f92672>==</span> <span style=color:#e6db74>&#39;sha-384&#39;</span>:
+</span></span><span style=display:flex><span>                actual_hash <span style=color:#f92672>=</span> hashlib<span style=color:#f92672>.</span>sha384(payload_str<span style=color:#f92672>.</span>encode(<span style=color:#e6db74>&#39;utf-8&#39;</span>))<span style=color:#f92672>.</span>hexdigest()
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>elif</span> algorithm <span style=color:#f92672>==</span> <span style=color:#e6db74>&#39;sha-512&#39;</span>:
+</span></span><span style=display:flex><span>                actual_hash <span style=color:#f92672>=</span> hashlib<span style=color:#f92672>.</span>sha512(payload_str<span style=color:#f92672>.</span>encode(<span style=color:#e6db74>&#39;utf-8&#39;</span>))<span style=color:#f92672>.</span>hexdigest()
 </span></span><span style=display:flex><span>            <span style=color:#66d9ef>else</span>:
 </span></span><span style=display:flex><span>                <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>f</span><span style=color:#e6db74>&#39;Ununterstützter Hash-Algorithmus: </span><span style=color:#e6db74>{</span>algorithm<span style=color:#e6db74>}</span><span style=color:#e6db74>&#39;</span>)
-</span></span><span style=display:flex><span>            
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>            <span style=color:#66d9ef>if</span> actual_hash <span style=color:#f92672>!=</span> expected_hash:
 </span></span><span style=display:flex><span>                <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>&#39;Payload-Hash stimmt nicht überein&#39;</span>)
-</span></span><span style=display:flex><span>        
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>else</span>:
+</span></span><span style=display:flex><span>            <span style=color:#75715e># Leerer Body: Hash-Feld MUSS fehlen</span>
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>if</span> <span style=color:#e6db74>&#39;hash&#39;</span> <span style=color:#f92672>in</span> decoded[<span style=color:#e6db74>&#39;webhook&#39;</span>]:
+</span></span><span style=display:flex><span>                <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>&#39;Hash-Feld muss bei leerem Body fehlen&#39;</span>)
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> decoded
-</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>    <span style=color:#66d9ef>except</span> jwt<span style=color:#f92672>.</span>InvalidTokenError <span style=color:#66d9ef>as</span> e:
 </span></span><span style=display:flex><span>        <span style=color:#66d9ef>raise</span> <span style=color:#a6e22e>ValueError</span>(<span style=color:#e6db74>f</span><span style=color:#e6db74>&#39;SWT-Validierung fehlgeschlagen: </span><span style=color:#e6db74>{</span>str(e)<span style=color:#e6db74>}</span><span style=color:#e6db74>&#39;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e># Beispiel-Verwendung</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>if</span> __name__ <span style=color:#f92672>==</span> <span style=color:#e6db74>&#39;__main__&#39;</span>:
+</span></span><span style=display:flex><span>    SECRET <span style=color:#f92672>=</span> <span style=color:#e6db74>&#39;your-secret-key&#39;</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e># Token mit Payload erstellen</span>
+</span></span><span style=display:flex><span>    token_with_payload <span style=color:#f92672>=</span> create_swt(
+</span></span><span style=display:flex><span>        event<span style=color:#f92672>=</span><span style=color:#e6db74>&#39;user.created&#39;</span>,
+</span></span><span style=display:flex><span>        payload<span style=color:#f92672>=</span>{<span style=color:#e6db74>&#39;userId&#39;</span>: <span style=color:#e6db74>&#39;12345&#39;</span>, <span style=color:#e6db74>&#39;email&#39;</span>: <span style=color:#e6db74>&#39;user@example.com&#39;</span>},
+</span></span><span style=display:flex><span>        secret<span style=color:#f92672>=</span>SECRET,
+</span></span><span style=display:flex><span>        subject<span style=color:#f92672>=</span><span style=color:#e6db74>&#39;user-12345&#39;</span>
+</span></span><span style=display:flex><span>    )
+</span></span><span style=display:flex><span>    print(<span style=color:#e6db74>f</span><span style=color:#e6db74>&#34;Token mit Payload: </span><span style=color:#e6db74>{</span>token_with_payload<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e># Token ohne Payload erstellen</span>
+</span></span><span style=display:flex><span>    token_empty <span style=color:#f92672>=</span> create_swt(
+</span></span><span style=display:flex><span>        event<span style=color:#f92672>=</span><span style=color:#e6db74>&#39;health.check&#39;</span>,
+</span></span><span style=display:flex><span>        payload<span style=color:#f92672>=</span><span style=color:#66d9ef>None</span>,
+</span></span><span style=display:flex><span>        secret<span style=color:#f92672>=</span>SECRET
+</span></span><span style=display:flex><span>    )
+</span></span><span style=display:flex><span>    print(<span style=color:#e6db74>f</span><span style=color:#e6db74>&#34;Token ohne Payload: </span><span style=color:#e6db74>{</span>token_empty<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e># Token validieren</span>
+</span></span><span style=display:flex><span>    validated <span style=color:#f92672>=</span> validate_swt(
+</span></span><span style=display:flex><span>        token_with_payload,
+</span></span><span style=display:flex><span>        payload<span style=color:#f92672>=</span>{<span style=color:#e6db74>&#39;userId&#39;</span>: <span style=color:#e6db74>&#39;12345&#39;</span>, <span style=color:#e6db74>&#39;email&#39;</span>: <span style=color:#e6db74>&#39;user@example.com&#39;</span>},
+</span></span><span style=display:flex><span>        secret<span style=color:#f92672>=</span>SECRET
+</span></span><span style=display:flex><span>    )
+</span></span><span style=display:flex><span>    print(<span style=color:#e6db74>f</span><span style=color:#e6db74>&#34;Validierter Token: </span><span style=color:#e6db74>{</span>validated<span style=color:#e6db74>}</span><span style=color:#e6db74>&#34;</span>)
 </span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><a href=#create--validate-secure-webhook-token>Create & Validate Secure Webhook Token</a></li></ul></nav></div></aside></main></body></html>

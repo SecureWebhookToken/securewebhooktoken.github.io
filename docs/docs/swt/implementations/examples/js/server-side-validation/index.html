@@ -11,33 +11,61 @@ const crypto = require('crypto');
 
 function validateSWT(token, payload, secret) {
   try {
-    // Decode and validate JWT
-    const decoded = jwt.verify(token, secret);
-    
+    // Decode and validate JWT with algorithm allowlist
+    const decoded = jwt.verify(token, secret, {
+      algorithms: ['HS256', 'HS384', 'HS512'] // Algorithm allowlist
+    });
+
+    // Verify token type is SWT
+    const header = jwt.decode(token, { complete: true }).header;
+    if (header.typ !== 'SWT') {
+      throw new Error('Invalid token type - must be SWT');
+    }
+
     // Check required claims
-    if (!decoded.webhook || !decoded.iss || !decoded.exp || 
-        !decoded.nbf || !decoded.iat || !decoded.jti) {
+    if (!decoded.webhook || !decoded.webhook.event || !decoded.iss ||
+        !decoded.exp || !decoded.nbf || !decoded.iat || !decoded.jti) {
       throw new Error('Missing required claims');
     }
-    
-    // Time validation
+
+    // Time validation with clock skew tolerance (~60 seconds)
     const now = Math.floor(Date.now() / 1000);
-    if (decoded.exp <= now || decoded.nbf > now) {
-      throw new Error('Token expired or not yet valid');
+    const clockSkew = 60;
+
+    if (decoded.exp <= (now - clockSkew)) {
+      throw new Error('Token has expired');
     }
-    
-    // Validate payload hash (if present)
-    if (payload && decoded.webhook.hash) {
+
+    if (decoded.nbf > (now + clockSkew)) {
+      throw new Error('Token not yet valid');
+    }
+
+    // Hash validation based on body presence
+    const hasBody = payload && Object.keys(payload).length > 0;
+
+    if (hasBody) {
+      // Non-empty body: hash field is REQUIRED
+      if (!decoded.webhook.hash) {
+        throw new Error('Hash field required for non-empty body');
+      }
+
       const [algorithm, expectedHash] = decoded.webhook.hash.split(':');
-      const actualHash = crypto.createHash(algorithm)
+      // Convert algorithm name (e.g., 'sha-256' to 'sha256' for Node.js)
+      const nodeAlgorithm = algorithm.replace('-', '');
+      const actualHash = crypto.createHash(nodeAlgorithm)
                               .update(JSON.stringify(payload))
                               .digest('hex');
-      
+
       if (actualHash !== expectedHash) {
         throw new Error('Payload hash mismatch');
       }
+    } else {
+      // Empty body: hash field MUST be absent
+      if (decoded.webhook.hash) {
+        throw new Error('Hash field must be absent for empty body');
+      }
     }
-    
+
     return decoded;
   } catch (error) {
     throw new Error(`SWT validation failed: ${error.message}`);
@@ -50,69 +78,111 @@ function validateSWT(token, payload, secret) {
 const jwt = require('jsonwebtoken');
 const crypto = require('crypto');
 
-function createSWT(webhookData, payload, secret) {
+function createSWT(event, payload, secret, options = {}) {
   const now = Math.floor(Date.now() / 1000);
-  
+
   const claims = {
     webhook: {
-      event: webhookData.event,
-      data: webhookData.data
+      event: event
     },
-    iss: 'webhook-service.example.com',
-    exp: now + 300, // Valid for 5 minutes
+    iss: options.issuer || 'webhook-service.example.com',
+    exp: now + (options.expiresIn || 300), // Default: 5 minutes
     nbf: now,
     iat: now,
     jti: crypto.randomUUID()
   };
-  
-  // Add payload hash (if present)
-  if (payload) {
+
+  // Add optional subject
+  if (options.subject) {
+    claims.sub = options.subject;
+  }
+
+  // Add optional retry_count
+  if (options.retryCount !== undefined) {
+    claims.webhook.retry_count = options.retryCount;
+  }
+
+  // Add payload hash if body is non-empty (REQUIRED by spec)
+  if (payload && Object.keys(payload).length > 0) {
     const hash = crypto.createHash('sha256')
                       .update(JSON.stringify(payload))
                       .digest('hex');
-    claims.webhook.hash = `sha256:${hash}`;
+    // Use standardized algorithm name with hyphen
+    claims.webhook.hash = `sha-256:${hash}`;
   }
-  
-  return jwt.sign(claims, secret, { algorithm: 'HS256' });
+
+  // Sign with typ: 'SWT' in header
+  return jwt.sign(claims, secret, {
+    algorithm: 'HS256',
+    header: { typ: 'SWT' }
+  });
 }
-"><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/server-side-validation/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Server-side Validation"><meta property="og:description" content="Server-side Validation (Node.js) # Complete SWT Validation # const jwt = require('jsonwebtoken'); const crypto = require('crypto'); function validateSWT(token, payload, secret) { try { // Decode and validate JWT const decoded = jwt.verify(token, secret); // Check required claims if (!decoded.webhook || !decoded.iss || !decoded.exp || !decoded.nbf || !decoded.iat || !decoded.jti) { throw new Error('Missing required claims'); } // Time validation const now = Math.floor(Date.now() / 1000); if (decoded.exp <= now || decoded.nbf > now) { throw new Error('Token expired or not yet valid'); } // Validate payload hash (if present) if (payload && decoded.webhook.hash) { const [algorithm, expectedHash] = decoded.webhook.hash.split(':'); const actualHash = crypto.createHash(algorithm) .update(JSON.stringify(payload)) .digest('hex'); if (actualHash !== expectedHash) { throw new Error('Payload hash mismatch'); } } return decoded; } catch (error) { throw new Error(`SWT validation failed: ${error.message}`); } } Token Creation # const jwt = require('jsonwebtoken'); const crypto = require('crypto'); function createSWT(webhookData, payload, secret) { const now = Math.floor(Date.now() / 1000); const claims = { webhook: { event: webhookData.event, data: webhookData.data }, iss: 'webhook-service.example.com', exp: now + 300, // Valid for 5 minutes nbf: now, iat: now, jti: crypto.randomUUID() }; // Add payload hash (if present) if (payload) { const hash = crypto.createHash('sha256') .update(JSON.stringify(payload)) .digest('hex'); claims.webhook.hash = `sha256:${hash}`; } return jwt.sign(claims, secret, { algorithm: 'HS256' }); }"><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-06-19T18:43:06+02:00"><title>Server-side Validation | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/server-side-validation/><link rel=alternate hreflang=de href=https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/js/server-side-validation/ title="Server-seitige Validierung"><link rel=stylesheet href=/book.min.935b6804af02f1c15a26e161cfab1051a99f1fe72b2cc2624b504f554ce08f4c.css integrity="sha256-k1toBK8C8cFaJuFhz6sQUamfH+crLMJiS1BPVUzgj0w=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.93f2800a396e934993fe403d9c77c9ea19b660f798215ba6af08a982f7e3ef10.js integrity="sha256-k/KACjluk0mT/kA9nHfJ6hm2YPeYIVumrwipgvfj7xA=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+"><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/server-side-validation/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Server-side Validation"><meta property="og:description" content="Server-side Validation (Node.js) # Complete SWT Validation # const jwt = require('jsonwebtoken'); const crypto = require('crypto'); function validateSWT(token, payload, secret) { try { // Decode and validate JWT with algorithm allowlist const decoded = jwt.verify(token, secret, { algorithms: ['HS256', 'HS384', 'HS512'] // Algorithm allowlist }); // Verify token type is SWT const header = jwt.decode(token, { complete: true }).header; if (header.typ !== 'SWT') { throw new Error('Invalid token type - must be SWT'); } // Check required claims if (!decoded.webhook || !decoded.webhook.event || !decoded.iss || !decoded.exp || !decoded.nbf || !decoded.iat || !decoded.jti) { throw new Error('Missing required claims'); } // Time validation with clock skew tolerance (~60 seconds) const now = Math.floor(Date.now() / 1000); const clockSkew = 60; if (decoded.exp <= (now - clockSkew)) { throw new Error('Token has expired'); } if (decoded.nbf > (now + clockSkew)) { throw new Error('Token not yet valid'); } // Hash validation based on body presence const hasBody = payload && Object.keys(payload).length > 0; if (hasBody) { // Non-empty body: hash field is REQUIRED if (!decoded.webhook.hash) { throw new Error('Hash field required for non-empty body'); } const [algorithm, expectedHash] = decoded.webhook.hash.split(':'); // Convert algorithm name (e.g., 'sha-256' to 'sha256' for Node.js) const nodeAlgorithm = algorithm.replace('-', ''); const actualHash = crypto.createHash(nodeAlgorithm) .update(JSON.stringify(payload)) .digest('hex'); if (actualHash !== expectedHash) { throw new Error('Payload hash mismatch'); } } else { // Empty body: hash field MUST be absent if (decoded.webhook.hash) { throw new Error('Hash field must be absent for empty body'); } } return decoded; } catch (error) { throw new Error(`SWT validation failed: ${error.message}`); } } Token Creation # const jwt = require('jsonwebtoken'); const crypto = require('crypto'); function createSWT(event, payload, secret, options = {}) { const now = Math.floor(Date.now() / 1000); const claims = { webhook: { event: event }, iss: options.issuer || 'webhook-service.example.com', exp: now + (options.expiresIn || 300), // Default: 5 minutes nbf: now, iat: now, jti: crypto.randomUUID() }; // Add optional subject if (options.subject) { claims.sub = options.subject; } // Add optional retry_count if (options.retryCount !== undefined) { claims.webhook.retry_count = options.retryCount; } // Add payload hash if body is non-empty (REQUIRED by spec) if (payload && Object.keys(payload).length > 0) { const hash = crypto.createHash('sha256') .update(JSON.stringify(payload)) .digest('hex'); // Use standardized algorithm name with hyphen claims.webhook.hash = `sha-256:${hash}`; } // Sign with typ: 'SWT' in header return jwt.sign(claims, secret, { algorithm: 'HS256', header: { typ: 'SWT' } }); }"><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><meta property="article:modified_time" content="2025-11-15T14:13:59+01:00"><title>Server-side Validation | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/implementations/examples/js/server-side-validation/><link rel=alternate hreflang=de href=https://securewebhooktoken.github.io/de/docs/swt/implementations/examples/js/server-side-validation/ title="Server-seitige Validierung"><link rel=stylesheet href=/book.min.935b6804af02f1c15a26e161cfab1051a99f1fe72b2cc2624b504f554ce08f4c.css integrity="sha256-k1toBK8C8cFaJuFhz6sQUamfH+crLMJiS1BPVUzgj0w=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.0fb5d3bf258a5d9bcb2d6eb3d067dbe7a75bd723d44030457ece2e720cc52cf1.js integrity="sha256-D7XTvyWKXZvLLW6z0Gfb56db1yPUQDBFfs4ucgzFLPE=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
 <input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Search aria-label=Search maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
 <label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
 English</a></label><ul><li><a href=/de/docs/swt/implementations/examples/js/server-side-validation/>Deutsch</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/docs/swt/specification/>Specification</a></li><li><a href=/docs/swt/security/>Security Guidelines</a></li><li><a href=/docs/swt/error-handling/>Error Handling</a></li><li><a href=/docs/swt/implementations/>Implementations</a><ul><li><input type=checkbox id=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=toggle checked>
-<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/ class=active>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Server-side Validation</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><ul><li><a href=#server-side-validation-nodejs>Server-side Validation (Node.js)</a><ul><li><a href=#complete-swt-validation>Complete SWT Validation</a></li><li><a href=#token-creation>Token Creation</a></li></ul></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h2 id=server-side-validation-nodejs>Server-side Validation (Node.js)
+<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/go/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/go/replay-protection/>Replay Protection</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/ class=active>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Server-side Validation</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><ul><li><a href=#server-side-validation-nodejs>Server-side Validation (Node.js)</a><ul><li><a href=#complete-swt-validation>Complete SWT Validation</a></li><li><a href=#token-creation>Token Creation</a></li></ul></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h2 id=server-side-validation-nodejs>Server-side Validation (Node.js)
 <a class=anchor href=#server-side-validation-nodejs>#</a></h2><h3 id=complete-swt-validation>Complete SWT Validation
 <a class=anchor href=#complete-swt-validation>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>jwt</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;jsonwebtoken&#39;</span>);
 </span></span><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>crypto</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;crypto&#39;</span>);
 </span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span><span style=color:#66d9ef>function</span> <span style=color:#a6e22e>validateSWT</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>payload</span>, <span style=color:#a6e22e>secret</span>) {
 </span></span><span style=display:flex><span>  <span style=color:#66d9ef>try</span> {
-</span></span><span style=display:flex><span>    <span style=color:#75715e>// Decode and validate JWT
-</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>decoded</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>jwt</span>.<span style=color:#a6e22e>verify</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>secret</span>);
-</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Decode and validate JWT with algorithm allowlist
+</span></span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>decoded</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>jwt</span>.<span style=color:#a6e22e>verify</span>(<span style=color:#a6e22e>token</span>, <span style=color:#a6e22e>secret</span>, {
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>algorithms</span><span style=color:#f92672>:</span> [<span style=color:#e6db74>&#39;HS256&#39;</span>, <span style=color:#e6db74>&#39;HS384&#39;</span>, <span style=color:#e6db74>&#39;HS512&#39;</span>] <span style=color:#75715e>// Algorithm allowlist
+</span></span></span><span style=display:flex><span>    });
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Verify token type is SWT
+</span></span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>header</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>jwt</span>.<span style=color:#a6e22e>decode</span>(<span style=color:#a6e22e>token</span>, { <span style=color:#a6e22e>complete</span><span style=color:#f92672>:</span> <span style=color:#66d9ef>true</span> }).<span style=color:#a6e22e>header</span>;
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>header</span>.<span style=color:#a6e22e>typ</span> <span style=color:#f92672>!==</span> <span style=color:#e6db74>&#39;SWT&#39;</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Invalid token type - must be SWT&#39;</span>);
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>    <span style=color:#75715e>// Check required claims
-</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>if</span> (<span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>iss</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>exp</span> <span style=color:#f92672>||</span> 
-</span></span><span style=display:flex><span>        <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>nbf</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>iat</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>jti</span>) {
+</span></span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>event</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>iss</span> <span style=color:#f92672>||</span>
+</span></span><span style=display:flex><span>        <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>exp</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>nbf</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>iat</span> <span style=color:#f92672>||</span> <span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>jti</span>) {
 </span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Missing required claims&#39;</span>);
 </span></span><span style=display:flex><span>    }
-</span></span><span style=display:flex><span>    
-</span></span><span style=display:flex><span>    <span style=color:#75715e>// Time validation
-</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>now</span> <span style=color:#f92672>=</span> Math.<span style=color:#a6e22e>floor</span>(Date.<span style=color:#a6e22e>now</span>() <span style=color:#f92672>/</span> <span style=color:#ae81ff>1000</span>);
-</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>exp</span> <span style=color:#f92672>&lt;=</span> <span style=color:#a6e22e>now</span> <span style=color:#f92672>||</span> <span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>nbf</span> <span style=color:#f92672>&gt;</span> <span style=color:#a6e22e>now</span>) {
-</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Token expired or not yet valid&#39;</span>);
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Time validation with clock skew tolerance (~60 seconds)
+</span></span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>now</span> <span style=color:#f92672>=</span> Math.<span style=color:#a6e22e>floor</span>(Date.<span style=color:#a6e22e>now</span>() <span style=color:#f92672>/</span> <span style=color:#ae81ff>1000</span>);
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>clockSkew</span> <span style=color:#f92672>=</span> <span style=color:#ae81ff>60</span>;
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>exp</span> <span style=color:#f92672>&lt;=</span> (<span style=color:#a6e22e>now</span> <span style=color:#f92672>-</span> <span style=color:#a6e22e>clockSkew</span>)) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Token has expired&#39;</span>);
 </span></span><span style=display:flex><span>    }
-</span></span><span style=display:flex><span>    
-</span></span><span style=display:flex><span>    <span style=color:#75715e>// Validate payload hash (if present)
-</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>payload</span> <span style=color:#f92672>&amp;&amp;</span> <span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span>) {
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>nbf</span> <span style=color:#f92672>&gt;</span> (<span style=color:#a6e22e>now</span> <span style=color:#f92672>+</span> <span style=color:#a6e22e>clockSkew</span>)) {
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Token not yet valid&#39;</span>);
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Hash validation based on body presence
+</span></span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>hasBody</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>payload</span> <span style=color:#f92672>&amp;&amp;</span> Object.<span style=color:#a6e22e>keys</span>(<span style=color:#a6e22e>payload</span>).<span style=color:#a6e22e>length</span> <span style=color:#f92672>&gt;</span> <span style=color:#ae81ff>0</span>;
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>hasBody</span>) {
+</span></span><span style=display:flex><span>      <span style=color:#75715e>// Non-empty body: hash field is REQUIRED
+</span></span></span><span style=display:flex><span>      <span style=color:#66d9ef>if</span> (<span style=color:#f92672>!</span><span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span>) {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Hash field required for non-empty body&#39;</span>);
+</span></span><span style=display:flex><span>      }
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>      <span style=color:#66d9ef>const</span> [<span style=color:#a6e22e>algorithm</span>, <span style=color:#a6e22e>expectedHash</span>] <span style=color:#f92672>=</span> <span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span>.<span style=color:#a6e22e>split</span>(<span style=color:#e6db74>&#39;:&#39;</span>);
-</span></span><span style=display:flex><span>      <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>actualHash</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>crypto</span>.<span style=color:#a6e22e>createHash</span>(<span style=color:#a6e22e>algorithm</span>)
+</span></span><span style=display:flex><span>      <span style=color:#75715e>// Convert algorithm name (e.g., &#39;sha-256&#39; to &#39;sha256&#39; for Node.js)
+</span></span></span><span style=display:flex><span>      <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>nodeAlgorithm</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>algorithm</span>.<span style=color:#a6e22e>replace</span>(<span style=color:#e6db74>&#39;-&#39;</span>, <span style=color:#e6db74>&#39;&#39;</span>);
+</span></span><span style=display:flex><span>      <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>actualHash</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>crypto</span>.<span style=color:#a6e22e>createHash</span>(<span style=color:#a6e22e>nodeAlgorithm</span>)
 </span></span><span style=display:flex><span>                              .<span style=color:#a6e22e>update</span>(<span style=color:#a6e22e>JSON</span>.<span style=color:#a6e22e>stringify</span>(<span style=color:#a6e22e>payload</span>))
 </span></span><span style=display:flex><span>                              .<span style=color:#a6e22e>digest</span>(<span style=color:#e6db74>&#39;hex&#39;</span>);
-</span></span><span style=display:flex><span>      
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>      <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>actualHash</span> <span style=color:#f92672>!==</span> <span style=color:#a6e22e>expectedHash</span>) {
 </span></span><span style=display:flex><span>        <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Payload hash mismatch&#39;</span>);
 </span></span><span style=display:flex><span>      }
+</span></span><span style=display:flex><span>    } <span style=color:#66d9ef>else</span> {
+</span></span><span style=display:flex><span>      <span style=color:#75715e>// Empty body: hash field MUST be absent
+</span></span></span><span style=display:flex><span>      <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>decoded</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span>) {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>&#39;Hash field must be absent for empty body&#39;</span>);
+</span></span><span style=display:flex><span>      }
 </span></span><span style=display:flex><span>    }
-</span></span><span style=display:flex><span>    
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>decoded</span>;
 </span></span><span style=display:flex><span>  } <span style=color:#66d9ef>catch</span> (<span style=color:#a6e22e>error</span>) {
 </span></span><span style=display:flex><span>    <span style=color:#66d9ef>throw</span> <span style=color:#66d9ef>new</span> Error(<span style=color:#e6db74>`SWT validation failed: </span><span style=color:#e6db74>${</span><span style=color:#a6e22e>error</span>.<span style=color:#a6e22e>message</span><span style=color:#e6db74>}</span><span style=color:#e6db74>`</span>);
@@ -122,29 +192,43 @@ English</a></label><ul><li><a href=/de/docs/swt/implementations/examples/js/serv
 <a class=anchor href=#token-creation>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-javascript data-lang=javascript><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>jwt</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;jsonwebtoken&#39;</span>);
 </span></span><span style=display:flex><span><span style=color:#66d9ef>const</span> <span style=color:#a6e22e>crypto</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>require</span>(<span style=color:#e6db74>&#39;crypto&#39;</span>);
 </span></span><span style=display:flex><span>
-</span></span><span style=display:flex><span><span style=color:#66d9ef>function</span> <span style=color:#a6e22e>createSWT</span>(<span style=color:#a6e22e>webhookData</span>, <span style=color:#a6e22e>payload</span>, <span style=color:#a6e22e>secret</span>) {
+</span></span><span style=display:flex><span><span style=color:#66d9ef>function</span> <span style=color:#a6e22e>createSWT</span>(<span style=color:#a6e22e>event</span>, <span style=color:#a6e22e>payload</span>, <span style=color:#a6e22e>secret</span>, <span style=color:#a6e22e>options</span> <span style=color:#f92672>=</span> {}) {
 </span></span><span style=display:flex><span>  <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>now</span> <span style=color:#f92672>=</span> Math.<span style=color:#a6e22e>floor</span>(Date.<span style=color:#a6e22e>now</span>() <span style=color:#f92672>/</span> <span style=color:#ae81ff>1000</span>);
-</span></span><span style=display:flex><span>  
+</span></span><span style=display:flex><span>
 </span></span><span style=display:flex><span>  <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>claims</span> <span style=color:#f92672>=</span> {
 </span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhook</span><span style=color:#f92672>:</span> {
-</span></span><span style=display:flex><span>      <span style=color:#a6e22e>event</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>webhookData</span>.<span style=color:#a6e22e>event</span>,
-</span></span><span style=display:flex><span>      <span style=color:#a6e22e>data</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>webhookData</span>.<span style=color:#a6e22e>data</span>
+</span></span><span style=display:flex><span>      <span style=color:#a6e22e>event</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>event</span>
 </span></span><span style=display:flex><span>    },
-</span></span><span style=display:flex><span>    <span style=color:#a6e22e>iss</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;webhook-service.example.com&#39;</span>,
-</span></span><span style=display:flex><span>    <span style=color:#a6e22e>exp</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>now</span> <span style=color:#f92672>+</span> <span style=color:#ae81ff>300</span>, <span style=color:#75715e>// Valid for 5 minutes
-</span></span></span><span style=display:flex><span><span style=color:#75715e></span>    <span style=color:#a6e22e>nbf</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>now</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>iss</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>options</span>.<span style=color:#a6e22e>issuer</span> <span style=color:#f92672>||</span> <span style=color:#e6db74>&#39;webhook-service.example.com&#39;</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>exp</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>now</span> <span style=color:#f92672>+</span> (<span style=color:#a6e22e>options</span>.<span style=color:#a6e22e>expiresIn</span> <span style=color:#f92672>||</span> <span style=color:#ae81ff>300</span>), <span style=color:#75715e>// Default: 5 minutes
+</span></span></span><span style=display:flex><span>    <span style=color:#a6e22e>nbf</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>now</span>,
 </span></span><span style=display:flex><span>    <span style=color:#a6e22e>iat</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>now</span>,
 </span></span><span style=display:flex><span>    <span style=color:#a6e22e>jti</span><span style=color:#f92672>:</span> <span style=color:#a6e22e>crypto</span>.<span style=color:#a6e22e>randomUUID</span>()
 </span></span><span style=display:flex><span>  };
-</span></span><span style=display:flex><span>  
-</span></span><span style=display:flex><span>  <span style=color:#75715e>// Add payload hash (if present)
-</span></span></span><span style=display:flex><span><span style=color:#75715e></span>  <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>payload</span>) {
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#75715e>// Add optional subject
+</span></span></span><span style=display:flex><span>  <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>options</span>.<span style=color:#a6e22e>subject</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>claims</span>.<span style=color:#a6e22e>sub</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>options</span>.<span style=color:#a6e22e>subject</span>;
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#75715e>// Add optional retry_count
+</span></span></span><span style=display:flex><span>  <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>options</span>.<span style=color:#a6e22e>retryCount</span> <span style=color:#f92672>!==</span> <span style=color:#66d9ef>undefined</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>claims</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>retry_count</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>options</span>.<span style=color:#a6e22e>retryCount</span>;
+</span></span><span style=display:flex><span>  }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#75715e>// Add payload hash if body is non-empty (REQUIRED by spec)
+</span></span></span><span style=display:flex><span>  <span style=color:#66d9ef>if</span> (<span style=color:#a6e22e>payload</span> <span style=color:#f92672>&amp;&amp;</span> Object.<span style=color:#a6e22e>keys</span>(<span style=color:#a6e22e>payload</span>).<span style=color:#a6e22e>length</span> <span style=color:#f92672>&gt;</span> <span style=color:#ae81ff>0</span>) {
 </span></span><span style=display:flex><span>    <span style=color:#66d9ef>const</span> <span style=color:#a6e22e>hash</span> <span style=color:#f92672>=</span> <span style=color:#a6e22e>crypto</span>.<span style=color:#a6e22e>createHash</span>(<span style=color:#e6db74>&#39;sha256&#39;</span>)
 </span></span><span style=display:flex><span>                      .<span style=color:#a6e22e>update</span>(<span style=color:#a6e22e>JSON</span>.<span style=color:#a6e22e>stringify</span>(<span style=color:#a6e22e>payload</span>))
 </span></span><span style=display:flex><span>                      .<span style=color:#a6e22e>digest</span>(<span style=color:#e6db74>&#39;hex&#39;</span>);
-</span></span><span style=display:flex><span>    <span style=color:#a6e22e>claims</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span> <span style=color:#f92672>=</span> <span style=color:#e6db74>`sha256:</span><span style=color:#e6db74>${</span><span style=color:#a6e22e>hash</span><span style=color:#e6db74>}</span><span style=color:#e6db74>`</span>;
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Use standardized algorithm name with hyphen
+</span></span></span><span style=display:flex><span>    <span style=color:#a6e22e>claims</span>.<span style=color:#a6e22e>webhook</span>.<span style=color:#a6e22e>hash</span> <span style=color:#f92672>=</span> <span style=color:#e6db74>`sha-256:</span><span style=color:#e6db74>${</span><span style=color:#a6e22e>hash</span><span style=color:#e6db74>}</span><span style=color:#e6db74>`</span>;
 </span></span><span style=display:flex><span>  }
-</span></span><span style=display:flex><span>  
-</span></span><span style=display:flex><span>  <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>jwt</span>.<span style=color:#a6e22e>sign</span>(<span style=color:#a6e22e>claims</span>, <span style=color:#a6e22e>secret</span>, { <span style=color:#a6e22e>algorithm</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;HS256&#39;</span> });
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>  <span style=color:#75715e>// Sign with typ: &#39;SWT&#39; in header
+</span></span></span><span style=display:flex><span>  <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>jwt</span>.<span style=color:#a6e22e>sign</span>(<span style=color:#a6e22e>claims</span>, <span style=color:#a6e22e>secret</span>, {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>algorithm</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;HS256&#39;</span>,
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>header</span><span style=color:#f92672>:</span> { <span style=color:#a6e22e>typ</span><span style=color:#f92672>:</span> <span style=color:#e6db74>&#39;SWT&#39;</span> }
+</span></span><span style=display:flex><span>  });
 </span></span><span style=display:flex><span>}
 </span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><ul><li><a href=#server-side-validation-nodejs>Server-side Validation (Node.js)</a><ul><li><a href=#complete-swt-validation>Complete SWT Validation</a></li><li><a href=#token-creation>Token Creation</a></li></ul></li></ul></li></ul></nav></div></aside></main></body></html>

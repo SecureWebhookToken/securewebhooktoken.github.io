@@ -1,0 +1,836 @@
+<!doctype html><html lang=en dir=ltr><head><meta charset=UTF-8><meta name=viewport content="width=device-width,initial-scale=1"><meta name=description content='
+  Replay Protection
+  #
+
+
+  In-Memory Replay Protection
+  #
+
+package main
+
+import (
+    "context"
+    "errors"
+    "log"
+    "net/http"
+    "sync"
+    "time"
+
+    "github.com/SecureWebhookToken/swt"
+)
+
+// MemoryReplayChecker implements replay protection using in-memory storage
+type MemoryReplayChecker struct {
+    mu    sync.RWMutex
+    seen  map[string]time.Time
+    ttl   time.Duration
+    ticker *time.Ticker
+    done   chan struct{}
+}
+
+// NewMemoryReplayChecker creates a new in-memory replay checker
+func NewMemoryReplayChecker(ttl time.Duration) *MemoryReplayChecker {
+    checker := &amp;MemoryReplayChecker{
+        seen:   make(map[string]time.Time),
+        ttl:    ttl,
+        ticker: time.NewTicker(ttl / 2),
+        done:   make(chan struct{}),
+    }
+
+    // Start cleanup goroutine
+    go checker.cleanup()
+
+    return checker
+}
+
+// CheckAndRecord implements the swt.ReplayChecker interface
+func (m *MemoryReplayChecker) CheckAndRecord(ctx context.Context, jti string) error {
+    m.mu.Lock()
+    defer m.mu.Unlock()
+
+    // Check if token has been seen before
+    if _, exists := m.seen[jti]; exists {
+        return errors.New("replay attack detected: token already used")
+    }
+
+    // Record the token
+    m.seen[jti] = time.Now()
+    return nil
+}
+
+// cleanup removes expired JTIs
+func (m *MemoryReplayChecker) cleanup() {
+    for {
+        select {
+        case <-m.ticker.C:
+            m.mu.Lock()
+            now := time.Now()
+            for jti, timestamp := range m.seen {
+                if now.Sub(timestamp) > m.ttl {
+                    delete(m.seen, jti)
+                }
+            }
+            m.mu.Unlock()
+        case <-m.done:
+            m.ticker.Stop()
+            return
+        }
+    }
+}
+
+// Close stops the cleanup goroutine
+func (m *MemoryReplayChecker) Close() {
+    close(m.done)
+}
+
+func main() {
+    secretKey := []byte("your-secret-key-min-256-bits")
+
+    // Create replay checker with 15 minute TTL
+    replayChecker := NewMemoryReplayChecker(15 * time.Minute)
+    defer replayChecker.Close()
+
+    // Configure handler with replay protection
+    opts := &amp;swt.HandlerOptions{
+        MaxBodySize:   5 * 1024 * 1024,
+        ReplayChecker: replayChecker,
+    }
+
+    webhookHandler := swt.NewHandlerFunc(secretKey, handleWebhook, opts)
+
+    http.HandleFunc("/webhook", webhookHandler)
+
+    log.Println("Webhook server with replay protection on :8080")
+    if err := http.ListenAndServe(":8080", nil); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func handleWebhook(token *swt.SecureWebhookToken, body []byte) error {
+    log.Printf("Processing webhook: %s (jti: %s)", token.Webhook().Event, token.ID())
+    return nil
+}
+
+  Redis-based Replay Protection
+  #
+
+package main
+
+import (
+    "context"
+    "errors"
+    "fmt"
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/SecureWebhookToken/swt"
+    "github.com/redis/go-redis/v9"
+)
+
+// RedisReplayChecker implements replay protection using Redis
+type RedisReplayChecker struct {
+    client *redis.Client
+    ttl    time.Duration
+}
+
+// NewRedisReplayChecker creates a new Redis-based replay checker
+func NewRedisReplayChecker(addr string, ttl time.Duration) *RedisReplayChecker {
+    client := redis.NewClient(&amp;redis.Options{
+        Addr:     addr,
+        Password: "", // Set if needed
+        DB:       0,
+    })
+
+    return &amp;RedisReplayChecker{
+        client: client,
+        ttl:    ttl,
+    }
+}
+
+// CheckAndRecord implements the swt.ReplayChecker interface
+func (r *RedisReplayChecker) CheckAndRecord(ctx context.Context, jti string) error {
+    key := fmt.Sprintf("swt:jti:%s", jti)
+
+    // Try to set the key only if it doesn&#39;t exist (NX flag)
+    result, err := r.client.SetNX(ctx, key, "1", r.ttl).Result()
+    if err != nil {
+        return fmt.Errorf("redis error: %w", err)
+    }
+
+    if !result {
+        return errors.New("replay attack detected: token already used")
+    }
+
+    return nil
+}
+
+// Close closes the Redis connection
+func (r *RedisReplayChecker) Close() error {
+    return r.client.Close()
+}
+
+func main() {
+    secretKey := []byte("your-secret-key-min-256-bits")
+
+    // Create Redis replay checker
+    replayChecker := NewRedisReplayChecker("localhost:6379", 15*time.Minute)
+    defer replayChecker.Close()
+
+    // Test Redis connection
+    ctx := context.Background()
+    if err := replayChecker.client.Ping(ctx).Err(); err != nil {
+        log.Fatalf("Redis connection failed: %v", err)
+    }
+
+    opts := &amp;swt.HandlerOptions{
+        MaxBodySize:   5 * 1024 * 1024,
+        ReplayChecker: replayChecker,
+    }
+
+    webhookHandler := swt.NewHandlerFunc(secretKey, handleWebhook, opts)
+
+    http.HandleFunc("/webhook", webhookHandler)
+
+    log.Println("Webhook server with Redis replay protection on :8080")
+    if err := http.ListenAndServe(":8080", nil); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func handleWebhook(token *swt.SecureWebhookToken, body []byte) error {
+    log.Printf("Processing webhook: %s (jti: %s)", token.Webhook().Event, token.ID())
+    return nil
+}
+
+  Database-based Replay Protection (PostgreSQL)
+  #
+
+package main
+
+import (
+    "context"
+    "database/sql"
+    "errors"
+    "log"
+    "net/http"
+    "time"
+
+    "github.com/SecureWebhookToken/swt"
+    _ "github.com/lib/pq"
+)
+
+// PostgresReplayChecker implements replay protection using PostgreSQL
+type PostgresReplayChecker struct {
+    db  *sql.DB
+    ttl time.Duration
+}
+
+// NewPostgresReplayChecker creates a new PostgreSQL-based replay checker
+func NewPostgresReplayChecker(connStr string, ttl time.Duration) (*PostgresReplayChecker, error) {
+    db, err := sql.Open("postgres", connStr)
+    if err != nil {
+        return nil, err
+    }
+
+    // Create table if it doesn&#39;t exist
+    _, err = db.Exec(`
+        CREATE TABLE IF NOT EXISTS webhook_tokens (
+            jti VARCHAR(255) PRIMARY KEY,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+            expires_at TIMESTAMP NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_expires_at ON webhook_tokens(expires_at);
+    `)
+    if err != nil {
+        return nil, err
+    }
+
+    checker := &amp;PostgresReplayChecker{
+        db:  db,
+        ttl: ttl,
+    }
+
+    // Start cleanup goroutine
+    go checker.cleanupExpired()
+
+    return checker, nil
+}
+
+// CheckAndRecord implements the swt.ReplayChecker interface
+func (p *PostgresReplayChecker) CheckAndRecord(ctx context.Context, jti string) error {
+    expiresAt := time.Now().Add(p.ttl)
+
+    // Try to insert the JTI
+    _, err := p.db.ExecContext(ctx, `
+        INSERT INTO webhook_tokens (jti, expires_at)
+        VALUES ($1, $2)
+    `, jti, expiresAt)
+
+    if err != nil {
+        // Check if it&#39;s a duplicate key error
+        if isDuplicateKeyError(err) {
+            return errors.New("replay attack detected: token already used")
+        }
+        return fmt.Errorf("database error: %w", err)
+    }
+
+    return nil
+}
+
+// cleanupExpired removes expired tokens periodically
+func (p *PostgresReplayChecker) cleanupExpired() {
+    ticker := time.NewTicker(5 * time.Minute)
+    defer ticker.Stop()
+
+    for range ticker.C {
+        _, err := p.db.Exec(`
+            DELETE FROM webhook_tokens
+            WHERE expires_at < NOW()
+        `)
+        if err != nil {
+            log.Printf("Failed to cleanup expired tokens: %v", err)
+        }
+    }
+}
+
+// Close closes the database connection
+func (p *PostgresReplayChecker) Close() error {
+    return p.db.Close()
+}
+
+func isDuplicateKeyError(err error) bool {
+    // PostgreSQL duplicate key error code: 23505
+    return err != nil && (err.Error() == "pq: duplicate key value violates unique constraint \"webhook_tokens_pkey\"" ||
+        strings.Contains(err.Error(), "23505"))
+}
+
+func main() {
+    secretKey := []byte("your-secret-key-min-256-bits")
+
+    // Database connection string
+    connStr := "postgres://user:password@localhost/webhooks?sslmode=disable"
+
+    // Create PostgreSQL replay checker
+    replayChecker, err := NewPostgresReplayChecker(connStr, 15*time.Minute)
+    if err != nil {
+        log.Fatalf("Failed to create replay checker: %v", err)
+    }
+    defer replayChecker.Close()
+
+    opts := &amp;swt.HandlerOptions{
+        MaxBodySize:   5 * 1024 * 1024,
+        ReplayChecker: replayChecker,
+    }
+
+    webhookHandler := swt.NewHandlerFunc(secretKey, handleWebhook, opts)
+
+    http.HandleFunc("/webhook", webhookHandler)
+
+    log.Println("Webhook server with PostgreSQL replay protection on :8080")
+    if err := http.ListenAndServe(":8080", nil); err != nil {
+        log.Fatal(err)
+    }
+}
+
+func handleWebhook(token *swt.SecureWebhookToken, body []byte) error {
+    log.Printf("Processing webhook: %s (jti: %s)", token.Webhook().Event, token.ID())
+    return nil
+}
+
+  Testing Replay Protection
+  #
+
+package main
+
+import (
+    "bytes"
+    "context"
+    "fmt"
+    "net/http"
+    "net/http/httptest"
+    "testing"
+    "time"
+
+    "github.com/SecureWebhookToken/swt"
+)
+
+func TestReplayProtection(t *testing.T) {
+    secretKey := []byte("test-secret-key-for-testing-only")
+
+    // Create replay checker
+    replayChecker := NewMemoryReplayChecker(5 * time.Minute)
+    defer replayChecker.Close()
+
+    // Create handler with replay protection
+    opts := &amp;swt.HandlerOptions{
+        ReplayChecker: replayChecker,
+    }
+
+    webhookHandler := swt.NewHandlerFunc(secretKey, func(token *swt.SecureWebhookToken, body []byte) error {
+        return nil
+    }, opts)
+
+    // Create test server
+    server := httptest.NewServer(webhookHandler)
+    defer server.Close()
+
+    // Create webhook request
+    req := &amp;swt.Request{
+        URL:    server.URL,
+        Issuer: "test-service",
+        Event:  "test.event",
+        Data:   []byte(`{"test":"data"}`),
+    }
+
+    // Build HTTP request
+    httpReq, err := req.Build(secretKey)
+    if err != nil {
+        t.Fatalf("Failed to build request: %v", err)
+    }
+
+    // First request should succeed
+    client := &amp;http.Client{}
+    resp, err := client.Do(httpReq)
+    if err != nil {
+        t.Fatalf("First request failed: %v", err)
+    }
+    defer resp.Body.Close()
+
+    if resp.StatusCode != http.StatusOK {
+        t.Errorf("Expected status 200, got %d", resp.StatusCode)
+    }
+
+    // Second request with same token should fail (replay attack)
+    // Recreate the request with the same body
+    httpReq2, err := http.NewRequest("POST", server.URL, bytes.NewReader(httpReq.Body))
+    if err != nil {
+        t.Fatalf("Failed to create second request: %v", err)
+    }
+    httpReq2.Header = httpReq.Header
+
+    resp2, err := client.Do(httpReq2)
+    if err != nil {
+        t.Fatalf("Second request failed: %v", err)
+    }
+    defer resp2.Body.Close()
+
+    if resp2.StatusCode != http.StatusUnauthorized {
+        t.Errorf("Expected status 401 for replay attack, got %d", resp2.StatusCode)
+    }
+
+    fmt.Println("Replay protection test passed!")
+}
+'><meta name=theme-color media="(prefers-color-scheme: light)" content="#ffffff"><meta name=theme-color media="(prefers-color-scheme: dark)" content="#343a40"><meta name=color-scheme content="light dark"><meta property="og:url" content="https://securewebhooktoken.github.io/docs/swt/implementations/examples/go/replay-protection/"><meta property="og:site_name" content="Secure Webhook Token"><meta property="og:title" content="Replay Protection"><meta property="og:description" content='Replay Protection # In-Memory Replay Protection # package main import ( "context" "errors" "log" "net/http" "sync" "time" "github.com/SecureWebhookToken/swt" ) // MemoryReplayChecker implements replay protection using in-memory storage type MemoryReplayChecker struct { mu sync.RWMutex seen map[string]time.Time ttl time.Duration ticker *time.Ticker done chan struct{} } // NewMemoryReplayChecker creates a new in-memory replay checker func NewMemoryReplayChecker(ttl time.Duration) *MemoryReplayChecker { checker := &amp;MemoryReplayChecker{ seen: make(map[string]time.Time), ttl: ttl, ticker: time.NewTicker(ttl / 2), done: make(chan struct{}), } // Start cleanup goroutine go checker.cleanup() return checker } // CheckAndRecord implements the swt.ReplayChecker interface func (m *MemoryReplayChecker) CheckAndRecord(ctx context.Context, jti string) error { m.mu.Lock() defer m.mu.Unlock() // Check if token has been seen before if _, exists := m.seen[jti]; exists { return errors.New("replay attack detected: token already used") } // Record the token m.seen[jti] = time.Now() return nil } // cleanup removes expired JTIs func (m *MemoryReplayChecker) cleanup() { for { select { case <-m.ticker.C: m.mu.Lock() now := time.Now() for jti, timestamp := range m.seen { if now.Sub(timestamp) > m.ttl { delete(m.seen, jti) } } m.mu.Unlock() case <-m.done: m.ticker.Stop() return } } } // Close stops the cleanup goroutine func (m *MemoryReplayChecker) Close() { close(m.done) } func main() { secretKey := []byte("your-secret-key-min-256-bits") // Create replay checker with 15 minute TTL replayChecker := NewMemoryReplayChecker(15 * time.Minute) defer replayChecker.Close() // Configure handler with replay protection opts := &amp;swt.HandlerOptions{ MaxBodySize: 5 * 1024 * 1024, ReplayChecker: replayChecker, } webhookHandler := swt.NewHandlerFunc(secretKey, handleWebhook, opts) http.HandleFunc("/webhook", webhookHandler) log.Println("Webhook server with replay protection on :8080") if err := http.ListenAndServe(":8080", nil); err != nil { log.Fatal(err) } } func handleWebhook(token *swt.SecureWebhookToken, body []byte) error { log.Printf("Processing webhook: %s (jti: %s)", token.Webhook().Event, token.ID()) return nil } Redis-based Replay Protection # package main import ( "context" "errors" "fmt" "log" "net/http" "time" "github.com/SecureWebhookToken/swt" "github.com/redis/go-redis/v9" ) // RedisReplayChecker implements replay protection using Redis type RedisReplayChecker struct { client *redis.Client ttl time.Duration } // NewRedisReplayChecker creates a new Redis-based replay checker func NewRedisReplayChecker(addr string, ttl time.Duration) *RedisReplayChecker { client := redis.NewClient(&amp;redis.Options{ Addr: addr, Password: "", // Set if needed DB: 0, }) return &amp;RedisReplayChecker{ client: client, ttl: ttl, } } // CheckAndRecord implements the swt.ReplayChecker interface func (r *RedisReplayChecker) CheckAndRecord(ctx context.Context, jti string) error { key := fmt.Sprintf("swt:jti:%s", jti) // Try to set the key only if it doesn&#39;t exist (NX flag) result, err := r.client.SetNX(ctx, key, "1", r.ttl).Result() if err != nil { return fmt.Errorf("redis error: %w", err) } if !result { return errors.New("replay attack detected: token already used") } return nil } // Close closes the Redis connection func (r *RedisReplayChecker) Close() error { return r.client.Close() } func main() { secretKey := []byte("your-secret-key-min-256-bits") // Create Redis replay checker replayChecker := NewRedisReplayChecker("localhost:6379", 15*time.Minute) defer replayChecker.Close() // Test Redis connection ctx := context.Background() if err := replayChecker.client.Ping(ctx).Err(); err != nil { log.Fatalf("Redis connection failed: %v", err) } opts := &amp;swt.HandlerOptions{ MaxBodySize: 5 * 1024 * 1024, ReplayChecker: replayChecker, } webhookHandler := swt.NewHandlerFunc(secretKey, handleWebhook, opts) http.HandleFunc("/webhook", webhookHandler) log.Println("Webhook server with Redis replay protection on :8080") if err := http.ListenAndServe(":8080", nil); err != nil { log.Fatal(err) } } func handleWebhook(token *swt.SecureWebhookToken, body []byte) error { log.Printf("Processing webhook: %s (jti: %s)", token.Webhook().Event, token.ID()) return nil } Database-based Replay Protection (PostgreSQL) # package main import ( "context" "database/sql" "errors" "log" "net/http" "time" "github.com/SecureWebhookToken/swt" _ "github.com/lib/pq" ) // PostgresReplayChecker implements replay protection using PostgreSQL type PostgresReplayChecker struct { db *sql.DB ttl time.Duration } // NewPostgresReplayChecker creates a new PostgreSQL-based replay checker func NewPostgresReplayChecker(connStr string, ttl time.Duration) (*PostgresReplayChecker, error) { db, err := sql.Open("postgres", connStr) if err != nil { return nil, err } // Create table if it doesn&#39;t exist _, err = db.Exec(` CREATE TABLE IF NOT EXISTS webhook_tokens ( jti VARCHAR(255) PRIMARY KEY, created_at TIMESTAMP NOT NULL DEFAULT NOW(), expires_at TIMESTAMP NOT NULL ); CREATE INDEX IF NOT EXISTS idx_expires_at ON webhook_tokens(expires_at); `) if err != nil { return nil, err } checker := &amp;PostgresReplayChecker{ db: db, ttl: ttl, } // Start cleanup goroutine go checker.cleanupExpired() return checker, nil } // CheckAndRecord implements the swt.ReplayChecker interface func (p *PostgresReplayChecker) CheckAndRecord(ctx context.Context, jti string) error { expiresAt := time.Now().Add(p.ttl) // Try to insert the JTI _, err := p.db.ExecContext(ctx, ` INSERT INTO webhook_tokens (jti, expires_at) VALUES ($1, $2) `, jti, expiresAt) if err != nil { // Check if it&#39;s a duplicate key error if isDuplicateKeyError(err) { return errors.New("replay attack detected: token already used") } return fmt.Errorf("database error: %w", err) } return nil } // cleanupExpired removes expired tokens periodically func (p *PostgresReplayChecker) cleanupExpired() { ticker := time.NewTicker(5 * time.Minute) defer ticker.Stop() for range ticker.C { _, err := p.db.Exec(` DELETE FROM webhook_tokens WHERE expires_at < NOW() `) if err != nil { log.Printf("Failed to cleanup expired tokens: %v", err) } } } // Close closes the database connection func (p *PostgresReplayChecker) Close() error { return p.db.Close() } func isDuplicateKeyError(err error) bool { // PostgreSQL duplicate key error code: 23505 return err != nil && (err.Error() == "pq: duplicate key value violates unique constraint \"webhook_tokens_pkey\"" || strings.Contains(err.Error(), "23505")) } func main() { secretKey := []byte("your-secret-key-min-256-bits") // Database connection string connStr := "postgres://user:password@localhost/webhooks?sslmode=disable" // Create PostgreSQL replay checker replayChecker, err := NewPostgresReplayChecker(connStr, 15*time.Minute) if err != nil { log.Fatalf("Failed to create replay checker: %v", err) } defer replayChecker.Close() opts := &amp;swt.HandlerOptions{ MaxBodySize: 5 * 1024 * 1024, ReplayChecker: replayChecker, } webhookHandler := swt.NewHandlerFunc(secretKey, handleWebhook, opts) http.HandleFunc("/webhook", webhookHandler) log.Println("Webhook server with PostgreSQL replay protection on :8080") if err := http.ListenAndServe(":8080", nil); err != nil { log.Fatal(err) } } func handleWebhook(token *swt.SecureWebhookToken, body []byte) error { log.Printf("Processing webhook: %s (jti: %s)", token.Webhook().Event, token.ID()) return nil } Testing Replay Protection # package main import ( "bytes" "context" "fmt" "net/http" "net/http/httptest" "testing" "time" "github.com/SecureWebhookToken/swt" ) func TestReplayProtection(t *testing.T) { secretKey := []byte("test-secret-key-for-testing-only") // Create replay checker replayChecker := NewMemoryReplayChecker(5 * time.Minute) defer replayChecker.Close() // Create handler with replay protection opts := &amp;swt.HandlerOptions{ ReplayChecker: replayChecker, } webhookHandler := swt.NewHandlerFunc(secretKey, func(token *swt.SecureWebhookToken, body []byte) error { return nil }, opts) // Create test server server := httptest.NewServer(webhookHandler) defer server.Close() // Create webhook request req := &amp;swt.Request{ URL: server.URL, Issuer: "test-service", Event: "test.event", Data: []byte(`{"test":"data"}`), } // Build HTTP request httpReq, err := req.Build(secretKey) if err != nil { t.Fatalf("Failed to build request: %v", err) } // First request should succeed client := &amp;http.Client{} resp, err := client.Do(httpReq) if err != nil { t.Fatalf("First request failed: %v", err) } defer resp.Body.Close() if resp.StatusCode != http.StatusOK { t.Errorf("Expected status 200, got %d", resp.StatusCode) } // Second request with same token should fail (replay attack) // Recreate the request with the same body httpReq2, err := http.NewRequest("POST", server.URL, bytes.NewReader(httpReq.Body)) if err != nil { t.Fatalf("Failed to create second request: %v", err) } httpReq2.Header = httpReq.Header resp2, err := client.Do(httpReq2) if err != nil { t.Fatalf("Second request failed: %v", err) } defer resp2.Body.Close() if resp2.StatusCode != http.StatusUnauthorized { t.Errorf("Expected status 401 for replay attack, got %d", resp2.StatusCode) } fmt.Println("Replay protection test passed!") }'><meta property="og:locale" content="en"><meta property="og:type" content="article"><meta property="article:section" content="docs"><title>Replay Protection | Secure Webhook Token</title><link rel=icon href=/favicon.png><link rel=manifest href=/manifest.json><link rel=canonical href=https://securewebhooktoken.github.io/docs/swt/implementations/examples/go/replay-protection/><link rel=stylesheet href=/book.min.935b6804af02f1c15a26e161cfab1051a99f1fe72b2cc2624b504f554ce08f4c.css integrity="sha256-k1toBK8C8cFaJuFhz6sQUamfH+crLMJiS1BPVUzgj0w=" crossorigin=anonymous><script defer src=/fuse.min.js></script><script defer src=/en.search.min.0fb5d3bf258a5d9bcb2d6eb3d067dbe7a75bd723d44030457ece2e720cc52cf1.js integrity="sha256-D7XTvyWKXZvLLW6z0Gfb56db1yPUQDBFfs4ucgzFLPE=" crossorigin=anonymous></script></head><body dir=ltr><input type=checkbox class="hidden toggle" id=menu-control>
+<input type=checkbox class="hidden toggle" id=toc-control><main class="container flex"><aside class=book-menu><div class=book-menu-content><nav><h2 class=book-brand><a class="flex align-center" href=/><span>Secure Webhook Token</span></a></h2><div class="book-search hidden"><input type=text id=book-search-input placeholder=Search aria-label=Search maxlength=64 data-hotkeys=s/><div class="book-search-spinner hidden"></div><ul id=book-search-results></ul></div><script>document.querySelector(".book-search").classList.remove("hidden")</script><ul class=book-languages><li><input type=checkbox id=languages class=toggle>
+<label for=languages class=flex><a role=button class="flex flex-auto"><img src=/svg/translate.svg class=book-icon alt=Languages>
+English</a></label><ul><li><a href=/de/>Deutsch</a></li></ul></li></ul><ul><li><span>SWT</span><ul><li><a href=/docs/swt/specification/>Specification</a></li><li><a href=/docs/swt/security/>Security Guidelines</a></li><li><a href=/docs/swt/error-handling/>Error Handling</a></li><li><a href=/docs/swt/implementations/>Implementations</a><ul><li><input type=checkbox id=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=toggle checked>
+<label for=section-1b1c1a45f1ed97fe6fae76efe1cb58e0 class=flex><a role=button class=flex-auto>Examples</a></label><ul><li><span>Go</span><ul><li><a href=/docs/swt/implementations/examples/go/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/go/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/go/replay-protection/ class=active>Replay Protection</a></li></ul></li><li><span>JS</span><ul><li><a href=/docs/swt/implementations/examples/js/client-side-token-generation/>Client-side Token Generation</a></li><li><a href=/docs/swt/implementations/examples/js/replay-protection/>Replay Protection with Redis</a></li><li><a href=/docs/swt/implementations/examples/js/server-side-validation/>Server-side Validation</a></li><li><a href=/docs/swt/implementations/examples/js/webhook-handler/>Webhook Handler</a></li></ul></li><li><span>Python</span><ul><li><a href=/docs/swt/implementations/examples/python/create-validate-secure-webhook-token/>Create & Validate Secure Webhook Token</a></li></ul></li></ul></li></ul></li></ul></li></ul><ul><li><a href=https://github.com/securewebhooktoken target=_blank rel=noopener>Github</a></li><li><a href=https://themes.gohugo.io/themes/hugo-book/ target=_blank rel=noopener>Hugo Book Theme</a></li></ul></nav><script>(function(){var e=document.querySelector("aside .book-menu-content");addEventListener("beforeunload",function(){localStorage.setItem("menu.scrollTop",e.scrollTop)}),e.scrollTop=localStorage.getItem("menu.scrollTop")})()</script></div></aside><div class=book-page><header class=book-header><div class="flex align-center justify-between"><label for=menu-control><img src=/svg/menu.svg class=book-icon alt=Menu></label><h3>Replay Protection</h3><label for=toc-control><img src=/svg/toc.svg class=book-icon alt="Table of Contents"></label></div><aside class="hidden clearfix"><nav id=TableOfContents><ul><li><ul><li><a href=#replay-protection>Replay Protection</a><ul><li><a href=#in-memory-replay-protection>In-Memory Replay Protection</a></li><li><a href=#redis-based-replay-protection>Redis-based Replay Protection</a></li><li><a href=#database-based-replay-protection-postgresql>Database-based Replay Protection (PostgreSQL)</a></li><li><a href=#testing-replay-protection>Testing Replay Protection</a></li></ul></li></ul></li></ul></nav></aside></header><article class="markdown book-article"><h2 id=replay-protection>Replay Protection
+<a class=anchor href=#replay-protection>#</a></h2><h3 id=in-memory-replay-protection>In-Memory Replay Protection
+<a class=anchor href=#in-memory-replay-protection>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-go data-lang=go><span style=display:flex><span><span style=color:#f92672>package</span> <span style=color:#a6e22e>main</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#f92672>import</span> (
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;context&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;errors&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;log&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;net/http&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;sync&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;time&#34;</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;github.com/SecureWebhookToken/swt&#34;</span>
+</span></span><span style=display:flex><span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// MemoryReplayChecker implements replay protection using in-memory storage</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>type</span> <span style=color:#a6e22e>MemoryReplayChecker</span> <span style=color:#66d9ef>struct</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>mu</span>    <span style=color:#a6e22e>sync</span>.<span style=color:#a6e22e>RWMutex</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>seen</span>  <span style=color:#66d9ef>map</span>[<span style=color:#66d9ef>string</span>]<span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Time</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>ttl</span>   <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Duration</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>ticker</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Ticker</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>done</span>   <span style=color:#66d9ef>chan</span> <span style=color:#66d9ef>struct</span>{}
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// NewMemoryReplayChecker creates a new in-memory replay checker</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>NewMemoryReplayChecker</span>(<span style=color:#a6e22e>ttl</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Duration</span>) <span style=color:#f92672>*</span><span style=color:#a6e22e>MemoryReplayChecker</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>checker</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>MemoryReplayChecker</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>seen</span>:   make(<span style=color:#66d9ef>map</span>[<span style=color:#66d9ef>string</span>]<span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Time</span>),
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ttl</span>:    <span style=color:#a6e22e>ttl</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ticker</span>: <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>NewTicker</span>(<span style=color:#a6e22e>ttl</span> <span style=color:#f92672>/</span> <span style=color:#ae81ff>2</span>),
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>done</span>:   make(<span style=color:#66d9ef>chan</span> <span style=color:#66d9ef>struct</span>{}),
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Start cleanup goroutine</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>go</span> <span style=color:#a6e22e>checker</span>.<span style=color:#a6e22e>cleanup</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>checker</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// CheckAndRecord implements the swt.ReplayChecker interface</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>m</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>MemoryReplayChecker</span>) <span style=color:#a6e22e>CheckAndRecord</span>(<span style=color:#a6e22e>ctx</span> <span style=color:#a6e22e>context</span>.<span style=color:#a6e22e>Context</span>, <span style=color:#a6e22e>jti</span> <span style=color:#66d9ef>string</span>) <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>mu</span>.<span style=color:#a6e22e>Lock</span>()
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>mu</span>.<span style=color:#a6e22e>Unlock</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Check if token has been seen before</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>_</span>, <span style=color:#a6e22e>exists</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>seen</span>[<span style=color:#a6e22e>jti</span>]; <span style=color:#a6e22e>exists</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>errors</span>.<span style=color:#a6e22e>New</span>(<span style=color:#e6db74>&#34;replay attack detected: token already used&#34;</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Record the token</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>seen</span>[<span style=color:#a6e22e>jti</span>] = <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Now</span>()
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// cleanup removes expired JTIs</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>m</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>MemoryReplayChecker</span>) <span style=color:#a6e22e>cleanup</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>for</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>select</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>case</span> <span style=color:#f92672>&lt;-</span><span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>ticker</span>.<span style=color:#a6e22e>C</span>:
+</span></span><span style=display:flex><span>            <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>mu</span>.<span style=color:#a6e22e>Lock</span>()
+</span></span><span style=display:flex><span>            <span style=color:#a6e22e>now</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Now</span>()
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>for</span> <span style=color:#a6e22e>jti</span>, <span style=color:#a6e22e>timestamp</span> <span style=color:#f92672>:=</span> <span style=color:#66d9ef>range</span> <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>seen</span> {
+</span></span><span style=display:flex><span>                <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>now</span>.<span style=color:#a6e22e>Sub</span>(<span style=color:#a6e22e>timestamp</span>) &gt; <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>ttl</span> {
+</span></span><span style=display:flex><span>                    delete(<span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>seen</span>, <span style=color:#a6e22e>jti</span>)
+</span></span><span style=display:flex><span>                }
+</span></span><span style=display:flex><span>            }
+</span></span><span style=display:flex><span>            <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>mu</span>.<span style=color:#a6e22e>Unlock</span>()
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>case</span> <span style=color:#f92672>&lt;-</span><span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>done</span>:
+</span></span><span style=display:flex><span>            <span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>ticker</span>.<span style=color:#a6e22e>Stop</span>()
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>return</span>
+</span></span><span style=display:flex><span>        }
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// Close stops the cleanup goroutine</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>m</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>MemoryReplayChecker</span>) <span style=color:#a6e22e>Close</span>() {
+</span></span><span style=display:flex><span>    close(<span style=color:#a6e22e>m</span>.<span style=color:#a6e22e>done</span>)
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>main</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>secretKey</span> <span style=color:#f92672>:=</span> []byte(<span style=color:#e6db74>&#34;your-secret-key-min-256-bits&#34;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create replay checker with 15 minute TTL</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>replayChecker</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>NewMemoryReplayChecker</span>(<span style=color:#ae81ff>15</span> <span style=color:#f92672>*</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Minute</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>replayChecker</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Configure handler with replay protection</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>opts</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>HandlerOptions</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>MaxBodySize</span>:   <span style=color:#ae81ff>5</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>1024</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>1024</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ReplayChecker</span>: <span style=color:#a6e22e>replayChecker</span>,
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhookHandler</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>NewHandlerFunc</span>(<span style=color:#a6e22e>secretKey</span>, <span style=color:#a6e22e>handleWebhook</span>, <span style=color:#a6e22e>opts</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>HandleFunc</span>(<span style=color:#e6db74>&#34;/webhook&#34;</span>, <span style=color:#a6e22e>webhookHandler</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Println</span>(<span style=color:#e6db74>&#34;Webhook server with replay protection on :8080&#34;</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>ListenAndServe</span>(<span style=color:#e6db74>&#34;:8080&#34;</span>, <span style=color:#66d9ef>nil</span>); <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Fatal</span>(<span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>handleWebhook</span>(<span style=color:#a6e22e>token</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>SecureWebhookToken</span>, <span style=color:#a6e22e>body</span> []<span style=color:#66d9ef>byte</span>) <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Printf</span>(<span style=color:#e6db74>&#34;Processing webhook: %s (jti: %s)&#34;</span>, <span style=color:#a6e22e>token</span>.<span style=color:#a6e22e>Webhook</span>().<span style=color:#a6e22e>Event</span>, <span style=color:#a6e22e>token</span>.<span style=color:#a6e22e>ID</span>())
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h3 id=redis-based-replay-protection>Redis-based Replay Protection
+<a class=anchor href=#redis-based-replay-protection>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-go data-lang=go><span style=display:flex><span><span style=color:#f92672>package</span> <span style=color:#a6e22e>main</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#f92672>import</span> (
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;context&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;errors&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;fmt&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;log&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;net/http&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;time&#34;</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;github.com/SecureWebhookToken/swt&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;github.com/redis/go-redis/v9&#34;</span>
+</span></span><span style=display:flex><span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// RedisReplayChecker implements replay protection using Redis</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>type</span> <span style=color:#a6e22e>RedisReplayChecker</span> <span style=color:#66d9ef>struct</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>client</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>redis</span>.<span style=color:#a6e22e>Client</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>ttl</span>    <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Duration</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// NewRedisReplayChecker creates a new Redis-based replay checker</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>NewRedisReplayChecker</span>(<span style=color:#a6e22e>addr</span> <span style=color:#66d9ef>string</span>, <span style=color:#a6e22e>ttl</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Duration</span>) <span style=color:#f92672>*</span><span style=color:#a6e22e>RedisReplayChecker</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>client</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>redis</span>.<span style=color:#a6e22e>NewClient</span>(<span style=color:#f92672>&amp;</span><span style=color:#a6e22e>redis</span>.<span style=color:#a6e22e>Options</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>Addr</span>:     <span style=color:#a6e22e>addr</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>Password</span>: <span style=color:#e6db74>&#34;&#34;</span>, <span style=color:#75715e>// Set if needed</span>
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>DB</span>:       <span style=color:#ae81ff>0</span>,
+</span></span><span style=display:flex><span>    })
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>RedisReplayChecker</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>client</span>: <span style=color:#a6e22e>client</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ttl</span>:    <span style=color:#a6e22e>ttl</span>,
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// CheckAndRecord implements the swt.ReplayChecker interface</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>r</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>RedisReplayChecker</span>) <span style=color:#a6e22e>CheckAndRecord</span>(<span style=color:#a6e22e>ctx</span> <span style=color:#a6e22e>context</span>.<span style=color:#a6e22e>Context</span>, <span style=color:#a6e22e>jti</span> <span style=color:#66d9ef>string</span>) <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>key</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>fmt</span>.<span style=color:#a6e22e>Sprintf</span>(<span style=color:#e6db74>&#34;swt:jti:%s&#34;</span>, <span style=color:#a6e22e>jti</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Try to set the key only if it doesn&#39;t exist (NX flag)</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>result</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>r</span>.<span style=color:#a6e22e>client</span>.<span style=color:#a6e22e>SetNX</span>(<span style=color:#a6e22e>ctx</span>, <span style=color:#a6e22e>key</span>, <span style=color:#e6db74>&#34;1&#34;</span>, <span style=color:#a6e22e>r</span>.<span style=color:#a6e22e>ttl</span>).<span style=color:#a6e22e>Result</span>()
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>fmt</span>.<span style=color:#a6e22e>Errorf</span>(<span style=color:#e6db74>&#34;redis error: %w&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> !<span style=color:#a6e22e>result</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>errors</span>.<span style=color:#a6e22e>New</span>(<span style=color:#e6db74>&#34;replay attack detected: token already used&#34;</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// Close closes the Redis connection</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>r</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>RedisReplayChecker</span>) <span style=color:#a6e22e>Close</span>() <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>r</span>.<span style=color:#a6e22e>client</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>main</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>secretKey</span> <span style=color:#f92672>:=</span> []byte(<span style=color:#e6db74>&#34;your-secret-key-min-256-bits&#34;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create Redis replay checker</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>replayChecker</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>NewRedisReplayChecker</span>(<span style=color:#e6db74>&#34;localhost:6379&#34;</span>, <span style=color:#ae81ff>15</span><span style=color:#f92672>*</span><span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Minute</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>replayChecker</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Test Redis connection</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>ctx</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>context</span>.<span style=color:#a6e22e>Background</span>()
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>replayChecker</span>.<span style=color:#a6e22e>client</span>.<span style=color:#a6e22e>Ping</span>(<span style=color:#a6e22e>ctx</span>).<span style=color:#a6e22e>Err</span>(); <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Fatalf</span>(<span style=color:#e6db74>&#34;Redis connection failed: %v&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>opts</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>HandlerOptions</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>MaxBodySize</span>:   <span style=color:#ae81ff>5</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>1024</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>1024</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ReplayChecker</span>: <span style=color:#a6e22e>replayChecker</span>,
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhookHandler</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>NewHandlerFunc</span>(<span style=color:#a6e22e>secretKey</span>, <span style=color:#a6e22e>handleWebhook</span>, <span style=color:#a6e22e>opts</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>HandleFunc</span>(<span style=color:#e6db74>&#34;/webhook&#34;</span>, <span style=color:#a6e22e>webhookHandler</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Println</span>(<span style=color:#e6db74>&#34;Webhook server with Redis replay protection on :8080&#34;</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>ListenAndServe</span>(<span style=color:#e6db74>&#34;:8080&#34;</span>, <span style=color:#66d9ef>nil</span>); <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Fatal</span>(<span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>handleWebhook</span>(<span style=color:#a6e22e>token</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>SecureWebhookToken</span>, <span style=color:#a6e22e>body</span> []<span style=color:#66d9ef>byte</span>) <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Printf</span>(<span style=color:#e6db74>&#34;Processing webhook: %s (jti: %s)&#34;</span>, <span style=color:#a6e22e>token</span>.<span style=color:#a6e22e>Webhook</span>().<span style=color:#a6e22e>Event</span>, <span style=color:#a6e22e>token</span>.<span style=color:#a6e22e>ID</span>())
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h3 id=database-based-replay-protection-postgresql>Database-based Replay Protection (PostgreSQL)
+<a class=anchor href=#database-based-replay-protection-postgresql>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-go data-lang=go><span style=display:flex><span><span style=color:#f92672>package</span> <span style=color:#a6e22e>main</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#f92672>import</span> (
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;context&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;database/sql&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;errors&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;log&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;net/http&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;time&#34;</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;github.com/SecureWebhookToken/swt&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>_</span> <span style=color:#e6db74>&#34;github.com/lib/pq&#34;</span>
+</span></span><span style=display:flex><span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// PostgresReplayChecker implements replay protection using PostgreSQL</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>type</span> <span style=color:#a6e22e>PostgresReplayChecker</span> <span style=color:#66d9ef>struct</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>db</span>  <span style=color:#f92672>*</span><span style=color:#a6e22e>sql</span>.<span style=color:#a6e22e>DB</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>ttl</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Duration</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// NewPostgresReplayChecker creates a new PostgreSQL-based replay checker</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>NewPostgresReplayChecker</span>(<span style=color:#a6e22e>connStr</span> <span style=color:#66d9ef>string</span>, <span style=color:#a6e22e>ttl</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Duration</span>) (<span style=color:#f92672>*</span><span style=color:#a6e22e>PostgresReplayChecker</span>, <span style=color:#66d9ef>error</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>db</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>sql</span>.<span style=color:#a6e22e>Open</span>(<span style=color:#e6db74>&#34;postgres&#34;</span>, <span style=color:#a6e22e>connStr</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>, <span style=color:#a6e22e>err</span>
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create table if it doesn&#39;t exist</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>_</span>, <span style=color:#a6e22e>err</span> = <span style=color:#a6e22e>db</span>.<span style=color:#a6e22e>Exec</span>(<span style=color:#e6db74>`
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        CREATE TABLE IF NOT EXISTS webhook_tokens (
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>            jti VARCHAR(255) PRIMARY KEY,
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>            created_at TIMESTAMP NOT NULL DEFAULT NOW(),
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>            expires_at TIMESTAMP NOT NULL
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        );
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        CREATE INDEX IF NOT EXISTS idx_expires_at ON webhook_tokens(expires_at);
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    `</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>, <span style=color:#a6e22e>err</span>
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>checker</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>PostgresReplayChecker</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>db</span>:  <span style=color:#a6e22e>db</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ttl</span>: <span style=color:#a6e22e>ttl</span>,
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Start cleanup goroutine</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>go</span> <span style=color:#a6e22e>checker</span>.<span style=color:#a6e22e>cleanupExpired</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>checker</span>, <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// CheckAndRecord implements the swt.ReplayChecker interface</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>p</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>PostgresReplayChecker</span>) <span style=color:#a6e22e>CheckAndRecord</span>(<span style=color:#a6e22e>ctx</span> <span style=color:#a6e22e>context</span>.<span style=color:#a6e22e>Context</span>, <span style=color:#a6e22e>jti</span> <span style=color:#66d9ef>string</span>) <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>expiresAt</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Now</span>().<span style=color:#a6e22e>Add</span>(<span style=color:#a6e22e>p</span>.<span style=color:#a6e22e>ttl</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Try to insert the JTI</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>_</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>p</span>.<span style=color:#a6e22e>db</span>.<span style=color:#a6e22e>ExecContext</span>(<span style=color:#a6e22e>ctx</span>, <span style=color:#e6db74>`
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        INSERT INTO webhook_tokens (jti, expires_at)
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        VALUES ($1, $2)
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>    `</span>, <span style=color:#a6e22e>jti</span>, <span style=color:#a6e22e>expiresAt</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#75715e>// Check if it&#39;s a duplicate key error</span>
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>isDuplicateKeyError</span>(<span style=color:#a6e22e>err</span>) {
+</span></span><span style=display:flex><span>            <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>errors</span>.<span style=color:#a6e22e>New</span>(<span style=color:#e6db74>&#34;replay attack detected: token already used&#34;</span>)
+</span></span><span style=display:flex><span>        }
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>fmt</span>.<span style=color:#a6e22e>Errorf</span>(<span style=color:#e6db74>&#34;database error: %w&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// cleanupExpired removes expired tokens periodically</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>p</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>PostgresReplayChecker</span>) <span style=color:#a6e22e>cleanupExpired</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>ticker</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>NewTicker</span>(<span style=color:#ae81ff>5</span> <span style=color:#f92672>*</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Minute</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>ticker</span>.<span style=color:#a6e22e>Stop</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>for</span> <span style=color:#66d9ef>range</span> <span style=color:#a6e22e>ticker</span>.<span style=color:#a6e22e>C</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>_</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>p</span>.<span style=color:#a6e22e>db</span>.<span style=color:#a6e22e>Exec</span>(<span style=color:#e6db74>`
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>            DELETE FROM webhook_tokens
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>            WHERE expires_at &lt; NOW()
+</span></span></span><span style=display:flex><span><span style=color:#e6db74>        `</span>)
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>            <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Printf</span>(<span style=color:#e6db74>&#34;Failed to cleanup expired tokens: %v&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>        }
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#75715e>// Close closes the database connection</span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> (<span style=color:#a6e22e>p</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>PostgresReplayChecker</span>) <span style=color:#a6e22e>Close</span>() <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>p</span>.<span style=color:#a6e22e>db</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>isDuplicateKeyError</span>(<span style=color:#a6e22e>err</span> <span style=color:#66d9ef>error</span>) <span style=color:#66d9ef>bool</span> {
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// PostgreSQL duplicate key error code: 23505</span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> <span style=color:#f92672>&amp;&amp;</span> (<span style=color:#a6e22e>err</span>.<span style=color:#a6e22e>Error</span>() <span style=color:#f92672>==</span> <span style=color:#e6db74>&#34;pq: duplicate key value violates unique constraint \&#34;webhook_tokens_pkey\&#34;&#34;</span> <span style=color:#f92672>||</span>
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>strings</span>.<span style=color:#a6e22e>Contains</span>(<span style=color:#a6e22e>err</span>.<span style=color:#a6e22e>Error</span>(), <span style=color:#e6db74>&#34;23505&#34;</span>))
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>main</span>() {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>secretKey</span> <span style=color:#f92672>:=</span> []byte(<span style=color:#e6db74>&#34;your-secret-key-min-256-bits&#34;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Database connection string</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>connStr</span> <span style=color:#f92672>:=</span> <span style=color:#e6db74>&#34;postgres://user:password@localhost/webhooks?sslmode=disable&#34;</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create PostgreSQL replay checker</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>replayChecker</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>NewPostgresReplayChecker</span>(<span style=color:#a6e22e>connStr</span>, <span style=color:#ae81ff>15</span><span style=color:#f92672>*</span><span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Minute</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Fatalf</span>(<span style=color:#e6db74>&#34;Failed to create replay checker: %v&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>replayChecker</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>opts</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>HandlerOptions</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>MaxBodySize</span>:   <span style=color:#ae81ff>5</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>1024</span> <span style=color:#f92672>*</span> <span style=color:#ae81ff>1024</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ReplayChecker</span>: <span style=color:#a6e22e>replayChecker</span>,
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhookHandler</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>NewHandlerFunc</span>(<span style=color:#a6e22e>secretKey</span>, <span style=color:#a6e22e>handleWebhook</span>, <span style=color:#a6e22e>opts</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>HandleFunc</span>(<span style=color:#e6db74>&#34;/webhook&#34;</span>, <span style=color:#a6e22e>webhookHandler</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Println</span>(<span style=color:#e6db74>&#34;Webhook server with PostgreSQL replay protection on :8080&#34;</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>ListenAndServe</span>(<span style=color:#e6db74>&#34;:8080&#34;</span>, <span style=color:#66d9ef>nil</span>); <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Fatal</span>(<span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>}
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>handleWebhook</span>(<span style=color:#a6e22e>token</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>SecureWebhookToken</span>, <span style=color:#a6e22e>body</span> []<span style=color:#66d9ef>byte</span>) <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>log</span>.<span style=color:#a6e22e>Printf</span>(<span style=color:#e6db74>&#34;Processing webhook: %s (jti: %s)&#34;</span>, <span style=color:#a6e22e>token</span>.<span style=color:#a6e22e>Webhook</span>().<span style=color:#a6e22e>Event</span>, <span style=color:#a6e22e>token</span>.<span style=color:#a6e22e>ID</span>())
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div><h3 id=testing-replay-protection>Testing Replay Protection
+<a class=anchor href=#testing-replay-protection>#</a></h3><div class=highlight><pre tabindex=0 style=color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4><code class=language-go data-lang=go><span style=display:flex><span><span style=color:#f92672>package</span> <span style=color:#a6e22e>main</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#f92672>import</span> (
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;bytes&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;context&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;fmt&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;net/http&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;net/http/httptest&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;testing&#34;</span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;time&#34;</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#e6db74>&#34;github.com/SecureWebhookToken/swt&#34;</span>
+</span></span><span style=display:flex><span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span><span style=color:#66d9ef>func</span> <span style=color:#a6e22e>TestReplayProtection</span>(<span style=color:#a6e22e>t</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>testing</span>.<span style=color:#a6e22e>T</span>) {
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>secretKey</span> <span style=color:#f92672>:=</span> []byte(<span style=color:#e6db74>&#34;test-secret-key-for-testing-only&#34;</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create replay checker</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>replayChecker</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>NewMemoryReplayChecker</span>(<span style=color:#ae81ff>5</span> <span style=color:#f92672>*</span> <span style=color:#a6e22e>time</span>.<span style=color:#a6e22e>Minute</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>replayChecker</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create handler with replay protection</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>opts</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>HandlerOptions</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>ReplayChecker</span>: <span style=color:#a6e22e>replayChecker</span>,
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>webhookHandler</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>NewHandlerFunc</span>(<span style=color:#a6e22e>secretKey</span>, <span style=color:#66d9ef>func</span>(<span style=color:#a6e22e>token</span> <span style=color:#f92672>*</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>SecureWebhookToken</span>, <span style=color:#a6e22e>body</span> []<span style=color:#66d9ef>byte</span>) <span style=color:#66d9ef>error</span> {
+</span></span><span style=display:flex><span>        <span style=color:#66d9ef>return</span> <span style=color:#66d9ef>nil</span>
+</span></span><span style=display:flex><span>    }, <span style=color:#a6e22e>opts</span>)
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create test server</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>server</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>httptest</span>.<span style=color:#a6e22e>NewServer</span>(<span style=color:#a6e22e>webhookHandler</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>server</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Create webhook request</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>req</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>swt</span>.<span style=color:#a6e22e>Request</span>{
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>URL</span>:    <span style=color:#a6e22e>server</span>.<span style=color:#a6e22e>URL</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>Issuer</span>: <span style=color:#e6db74>&#34;test-service&#34;</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>Event</span>:  <span style=color:#e6db74>&#34;test.event&#34;</span>,
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>Data</span>:   []byte(<span style=color:#e6db74>`{&#34;test&#34;:&#34;data&#34;}`</span>),
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Build HTTP request</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>httpReq</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>req</span>.<span style=color:#a6e22e>Build</span>(<span style=color:#a6e22e>secretKey</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>t</span>.<span style=color:#a6e22e>Fatalf</span>(<span style=color:#e6db74>&#34;Failed to build request: %v&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// First request should succeed</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>client</span> <span style=color:#f92672>:=</span> <span style=color:#f92672>&amp;</span><span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>Client</span>{}
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>resp</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>client</span>.<span style=color:#a6e22e>Do</span>(<span style=color:#a6e22e>httpReq</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>t</span>.<span style=color:#a6e22e>Fatalf</span>(<span style=color:#e6db74>&#34;First request failed: %v&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>resp</span>.<span style=color:#a6e22e>Body</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>resp</span>.<span style=color:#a6e22e>StatusCode</span> <span style=color:#f92672>!=</span> <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>StatusOK</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>t</span>.<span style=color:#a6e22e>Errorf</span>(<span style=color:#e6db74>&#34;Expected status 200, got %d&#34;</span>, <span style=color:#a6e22e>resp</span>.<span style=color:#a6e22e>StatusCode</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Second request with same token should fail (replay attack)</span>
+</span></span><span style=display:flex><span>    <span style=color:#75715e>// Recreate the request with the same body</span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>httpReq2</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>NewRequest</span>(<span style=color:#e6db74>&#34;POST&#34;</span>, <span style=color:#a6e22e>server</span>.<span style=color:#a6e22e>URL</span>, <span style=color:#a6e22e>bytes</span>.<span style=color:#a6e22e>NewReader</span>(<span style=color:#a6e22e>httpReq</span>.<span style=color:#a6e22e>Body</span>))
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>t</span>.<span style=color:#a6e22e>Fatalf</span>(<span style=color:#e6db74>&#34;Failed to create second request: %v&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>httpReq2</span>.<span style=color:#a6e22e>Header</span> = <span style=color:#a6e22e>httpReq</span>.<span style=color:#a6e22e>Header</span>
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>resp2</span>, <span style=color:#a6e22e>err</span> <span style=color:#f92672>:=</span> <span style=color:#a6e22e>client</span>.<span style=color:#a6e22e>Do</span>(<span style=color:#a6e22e>httpReq2</span>)
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>err</span> <span style=color:#f92672>!=</span> <span style=color:#66d9ef>nil</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>t</span>.<span style=color:#a6e22e>Fatalf</span>(<span style=color:#e6db74>&#34;Second request failed: %v&#34;</span>, <span style=color:#a6e22e>err</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>defer</span> <span style=color:#a6e22e>resp2</span>.<span style=color:#a6e22e>Body</span>.<span style=color:#a6e22e>Close</span>()
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#66d9ef>if</span> <span style=color:#a6e22e>resp2</span>.<span style=color:#a6e22e>StatusCode</span> <span style=color:#f92672>!=</span> <span style=color:#a6e22e>http</span>.<span style=color:#a6e22e>StatusUnauthorized</span> {
+</span></span><span style=display:flex><span>        <span style=color:#a6e22e>t</span>.<span style=color:#a6e22e>Errorf</span>(<span style=color:#e6db74>&#34;Expected status 401 for replay attack, got %d&#34;</span>, <span style=color:#a6e22e>resp2</span>.<span style=color:#a6e22e>StatusCode</span>)
+</span></span><span style=display:flex><span>    }
+</span></span><span style=display:flex><span>
+</span></span><span style=display:flex><span>    <span style=color:#a6e22e>fmt</span>.<span style=color:#a6e22e>Println</span>(<span style=color:#e6db74>&#34;Replay protection test passed!&#34;</span>)
+</span></span><span style=display:flex><span>}
+</span></span></code></pre></div></article><footer class=book-footer><div class="flex flex-wrap justify-between"></div><script>(function(){function e(e){const t=window.getSelection(),n=document.createRange();n.selectNodeContents(e),t.removeAllRanges(),t.addRange(n)}document.querySelectorAll("pre code").forEach(t=>{t.addEventListener("click",function(){if(window.getSelection().toString())return;e(t.parentElement),navigator.clipboard&&navigator.clipboard.writeText(t.parentElement.textContent)})})})()</script></footer><label for=menu-control class="hidden book-menu-overlay"></label></div><aside class=book-toc><div class=book-toc-content><nav id=TableOfContents><ul><li><ul><li><a href=#replay-protection>Replay Protection</a><ul><li><a href=#in-memory-replay-protection>In-Memory Replay Protection</a></li><li><a href=#redis-based-replay-protection>Redis-based Replay Protection</a></li><li><a href=#database-based-replay-protection-postgresql>Database-based Replay Protection (PostgreSQL)</a></li><li><a href=#testing-replay-protection>Testing Replay Protection</a></li></ul></li></ul></li></ul></nav></div></aside></main></body></html>

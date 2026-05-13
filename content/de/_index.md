@@ -5,7 +5,7 @@ title: "Secure Webhook Token (SWT) Dokumentation"
 
 # Secure Webhook Token (SWT) Dokumentation
 
-Diese Dokumentation beschreibt die IETF Draft Spezifikation für Secure Webhook Tokens (SWT) basierend auf [`draft-knauer-secure-webhook-token-01`](https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/01/).
+Diese Dokumentation beschreibt die IETF Draft Spezifikation für Secure Webhook Tokens (SWT) basierend auf [`draft-knauer-secure-webhook-token-02`](https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/02/).
 
 Secure Webhook Token (SWT) ist ein spezialisiertes JSON Web Token (JWT)-Format, das für die sichere Autorisierung und Verifizierung von Webhook-Anfragen via HTTP POST entwickelt wurde.
 
