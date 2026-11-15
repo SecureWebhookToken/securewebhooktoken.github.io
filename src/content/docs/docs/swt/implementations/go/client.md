@@ -1,6 +1,6 @@
 ---
 title: "Go: Client-side Token Generation"
-description: "Generate and sign Secure Webhook Tokens in Go using github.com/SecureWebhookToken/swt v0.5.0, including empty bodies, options, and retry logic."
+description: "Generate and sign Secure Webhook Tokens in Go using github.com/SecureWebhookToken/swt v0.5.1, including empty bodies, options, and retry logic."
 ---
 
 ## Client-side Token Generation
@@ -8,7 +8,7 @@ description: "Generate and sign Secure Webhook Tokens in Go using github.com/Sec
 ### Installation
 
 ```bash
-go get github.com/SecureWebhookToken/swt@v0.5.0
+go get github.com/SecureWebhookToken/swt@v0.5.1
 ```
 
 ### Basic Token Creation and Sending

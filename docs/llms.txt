@@ -37,5 +37,5 @@ In autonomous agentic systems (A2A, MCP, async tool callbacks), incoming webhook
 ## Reference Implementations & Standards
 
 - [IETF Datatracker: draft-knauer-secure-webhook-token-03](https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/03/)
-- [Go Reference Library (v0.5.0)](https://github.com/SecureWebhookToken/swt)
+- [Go Reference Library (v0.5.1)](https://github.com/SecureWebhookToken/swt)
 - [IETF Draft Source Repository](https://github.com/SecureWebhookToken/swt-internet-draft)

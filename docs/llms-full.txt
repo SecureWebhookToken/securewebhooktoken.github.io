@@ -25,7 +25,7 @@ Secure Webhook Token (SWT) is a specialized JWT profile (`typ: "SWT"`) for authe
 - **Draft Source**: https://github.com/SecureWebhookToken/swt-internet-draft
 - **JSON Schema (Draft 2020-12)**: https://securewebhooktoken.github.io/schemas/swt-claims.schema.json
 - **Conformance Test Suite**: https://github.com/SecureWebhookToken/swt-conformance (`vectors/draft-03/`, 56 normative & advisory test vectors)
-- **Go Reference Library (`v0.5.0`)**: https://github.com/SecureWebhookToken/swt
+- **Go Reference Library (`v0.5.1`)**: https://github.com/SecureWebhookToken/swt
 
 Normative keywords (`MUST`, `SHOULD`, `MAY`) below reflect `draft-knauer-secure-webhook-token-03`. Implementation guidance (such as `~60s` clock skew and `<= 15m` token lifetime) is explicitly marked as `SHOULD` / implementation guidance.
 
@@ -95,7 +95,7 @@ Receivers MUST enforce all checks without accepting partially validated tokens o
 - **Node.js (ESM)**: `examples/swt-verifier.mjs` — implements all 18 steps (`HS256`/`HS384`/`HS512`).
 - **Python (3.9+)**: `examples/swt_verifier.py` — implements all 18 steps (`HS256`/`HS384`/`HS512`).
 
-### Go Reference Library (`github.com/SecureWebhookToken/swt v0.5.0`)
+### Go Reference Library (`github.com/SecureWebhookToken/swt v0.5.1`)
 ```go
 hash, err := swt.NewHash(swt.SHA256, payload)
 if err != nil {
@@ -113,7 +113,7 @@ token, err := swt.New(
     swt.WithIssuedAt(time.Now()),
 )
 ```
-Receiver middleware (`v0.5.0`):
+Receiver middleware (`v0.5.1`):
 ```go
 handler := swt.NewHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     token, ok := swt.TokenFromContext(r.Context())
@@ -132,7 +132,7 @@ handler := swt.NewHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
     MaxBodySize:      1 << 20,
 })
 ```
-*Note on Go `v0.5.0`*: `swt.go` runs `ReplayChecker` before body hash verification and maps invalid/expired/replayed tokens to `400` in its built-in middleware. If strict `401`/`403` mapping per Draft-03 Section 11 is required, inspect errors in a custom handler or track upstream library updates.
+*Note on Go `v0.5.1`*: `swt.go` runs `ReplayChecker` before body hash verification and maps invalid/expired/replayed tokens to `400` in its built-in middleware. If strict `401`/`403` mapping per Draft-03 Section 11 is required, inspect errors in a custom handler or track upstream library updates.
 
 ---
 
