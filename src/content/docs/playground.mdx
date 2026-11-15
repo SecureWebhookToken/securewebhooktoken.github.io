@@ -1,0 +1,18 @@
+---
+title: SWT Playground
+description: Interactive in-browser Secure Webhook Token (SWT) generator, decoder, and verifier.
+tableOfContents: false
+---
+
+import SWTPlayground from '../../components/SWTPlayground.tsx';
+
+Generate, inspect, and verify **Secure Webhook Tokens (SWT)** directly in your browser using the Web Crypto API. No secrets or payloads ever leave your device.
+
+<SWTPlayground client:load locale="en" />
+
+### How to test Payload Tampering
+
+1. Select a preset (e.g., **AI Agent Callback** or **Payment Event**).
+2. Click **⚡ Tamper Body** in the top-right toolbar. This modifies the HTTP POST body *without* re-signing the token.
+3. Observe how the receiver verification immediately flags a `webhook.hash` mismatch (HTTP `400 Bad Request`), preventing tampered payloads or injected prompts from reaching your application.
+4. Click **↻ Re-sign Token** to recompute `webhook.hash` and generate a fresh valid signature.

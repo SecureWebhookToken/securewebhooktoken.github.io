@@ -1,0 +1,18 @@
+---
+title: SWT Playground
+description: Interaktiver In-Browser Secure Webhook Token (SWT) Generator, Decoder und Verifier.
+tableOfContents: false
+---
+
+import SWTPlayground from '../../../components/SWTPlayground.tsx';
+
+Erstelle, inspiziere und verifiziere **Secure Webhook Tokens (SWT)** direkt im Browser über die Web Crypto API. Es verlassen keine Secrets oder Payloads dein Gerät.
+
+<SWTPlayground client:load locale="de" />
+
+### So testest du Payload-Manipulation
+
+1. Wähle eine Vorlage (z.B. **KI-Agenten-Callback** oder **Zahlungs-Event**).
+2. Klicke oben rechts auf **⚡ Body manipulieren**. Dadurch wird der HTTP-POST-Body verändert, *ohne* das Token neu zu signieren.
+3. Beobachte, wie die Empfänger-Verifizierung sofort einen `webhook.hash`-Fehler (HTTP `400 Bad Request`) meldet und manipulierte Payloads oder eingeschleuste Prompts blockiert.
+4. Klicke auf **↻ Neu signieren**, um `webhook.hash` und die Signatur neu zu berechnen.

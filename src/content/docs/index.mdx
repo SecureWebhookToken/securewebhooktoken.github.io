@@ -1,0 +1,181 @@
+---
+title: Secure Webhook Token (SWT)
+description: Cryptographically binding webhook payloads to signed JWTs with built-in replay protection and AI Agent A2A security.
+template: splash
+hero:
+  tagline: The open IETF Draft standard (draft-03) for cryptographically bound, replay-protected, and AI-agent-safe webhook authentication.
+  actions:
+    - text: Open SWT Playground
+      link: /playground/
+      icon: rocket
+      variant: primary
+    - text: Read Specification
+      link: /docs/swt/specification/
+      icon: open-book
+      variant: secondary
+    - text: IETF Datatracker
+      link: https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/03/
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
+import SWTPlayground from '../../components/SWTPlayground.tsx';
+
+<div class="swt-badges">
+  <a class="swt-badge swt-badge--accent" href="https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/03/">IETF Draft-03</a>
+  <a class="swt-badge swt-badge--emerald" href="https://github.com/SecureWebhookToken/swt/releases/tag/v0.5.0">Go Reference v0.5.0</a>
+  <span class="swt-badge">typ: "SWT"</span>
+  <span class="swt-badge">SHA-2 / SHA-3 Payload Binding</span>
+  <span class="swt-badge">A2A &amp; MCP Ready</span>
+</div>
+
+## Interactive SWT Playground
+
+Test Secure Webhook Tokens live in your browser using the Web Crypto API. Edit the claims or HTTP body, or click **Tamper Body** to see how `webhook.hash` immediately catches payload manipulation.
+
+<SWTPlayground client:load locale="en" />
+
+---
+
+## Why Secure Webhook Token?
+
+Traditional webhook schemes either rely on proprietary HMAC headers without standardized metadata, or use generic JWTs that leave the HTTP request body unauthenticated.
+
+<table class="swt-matrix">
+  <thead>
+    <tr>
+      <th>Capability</th>
+      <th>Proprietary HMAC (e.g. Stripe)</th>
+      <th>Generic JWT (RFC 7519)</th>
+      <th class="swt-col-highlight">Secure Webhook Token (SWT)</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><strong>Open Standard</strong></td>
+      <td>Vendor-specific</td>
+      <td>RFC 7519 (generic auth)</td>
+      <td class="swt-col-highlight">IETF <code>draft-knauer-secure-webhook-token-03</code></td>
+    </tr>
+    <tr>
+      <td><strong>Payload Tampering Defense</strong></td>
+      <td>Yes (raw HMAC)</td>
+      <td>No (body unbound)</td>
+      <td class="swt-col-highlight">Yes (<code>webhook.hash</code> SHA-2/SHA-3)</td>
+    </tr>
+    <tr>
+      <td><strong>Replay Protection</strong></td>
+      <td>Custom timestamp checks</td>
+      <td>Optional</td>
+      <td class="swt-col-highlight">Mandatory (<code>jti</code> + <code>exp</code> + <code>retry_count</code>)</td>
+    </tr>
+    <tr>
+      <td><strong>Asymmetric &amp; JWKS Rotation</strong></td>
+      <td>Shared secret only</td>
+      <td>Yes (<code>kid</code> / JWKS)</td>
+      <td class="swt-col-highlight">Yes (HS256–512, RS256, ES256 + <code>kid</code>)</td>
+    </tr>
+    <tr>
+      <td><strong>AI Agent / A2A Safe</strong></td>
+      <td>No provenance</td>
+      <td>Payload vulnerable</td>
+      <td class="swt-col-highlight">Prompt-injection &amp; wakeup safe</td>
+    </tr>
+  </tbody>
+</table>
+
+---
+
+## Built for Autonomous AI Agents &amp; A2A Workflows
+
+<CardGrid>
+  <Card title="Indirect Prompt Injection Defense" icon="approve-check-circle">
+    Because the HTTP body is cryptographically bound via <code>webhook.hash</code>, untrusted intermediaries cannot alter tool results or inject malicious instructions into LLM context windows.
+  </Card>
+  <Card title="Stateless Reactive Wakeups" icon="rocket">
+    Dormant agents wake up only when a valid, unexpired SWT arrives with verified <code>iss</code> (caller) and <code>aud</code> (target agent) claims.
+  </Card>
+  <Card title="Single-Pass Streaming Verification" icon="setting">
+    The Go <code>swt.Middleware</code> verifies the body hash in a single pass via <code>io.TeeReader</code> and restores <code>r.Body</code> seamlessly for downstream handlers.
+  </Card>
+  <Card title="Zero-Friction Key Rotation" icon="random">
+    Supports <code>kid</code> header routing and dynamic <code>KeyProvider</code> lookups for seamless JWKS and multi-tenant secret rotation.
+  </Card>
+</CardGrid>
+
+---
+
+## Request Verification Lifecycle
+
+<div class="swt-flow">
+  <div class="swt-flow-step">
+    <div class="swt-flow-num">1</div>
+    <h4>Sender Computes Hash</h4>
+    <p>Calculates <code>sha-256:&lt;hex&gt;</code> over the raw HTTP POST body and embeds it into <code>webhook.hash</code>.</p>
+  </div>
+  <div class="swt-flow-step">
+    <div class="swt-flow-num">2</div>
+    <h4>Signed HTTP POST</h4>
+    <p>Transmits the token via <code>Authorization: Bearer &lt;SWT&gt;</code> over TLS 1.2+ / 1.3.</p>
+  </div>
+  <div class="swt-flow-step">
+    <div class="swt-flow-num">3</div>
+    <h4>Signature &amp; Claims</h4>
+    <p>Receiver enforces algorithm allowlist, <code>typ: "SWT"</code>, <code>iss</code>, <code>aud</code>, and clock-skew leeway.</p>
+  </div>
+  <div class="swt-flow-step">
+    <div class="swt-flow-num">4</div>
+    <h4>Body Hash &amp; Replay</h4>
+    <p>Verifies constant-time hash match and rejects reused <code>jti</code> tokens before invoking business logic.</p>
+  </div>
+</div>
+
+---
+
+## 30-Second Quickstart
+
+<Tabs>
+  <TabItem label="Go (v0.5.0)">
+    ```go
+    opts := &swt.HandlerOptions{
+        ExpectedIssuer:   "https://auth.example.com",
+        ExpectedAudience: "https://api.example.com/webhooks",
+        ClockSkew:        1 * time.Minute,
+        ReplayChecker:    swt.NewMemoryReplayChecker(5 * time.Minute),
+    }
+
+    mw, err := swt.Middleware(secretKey, opts)
+    http.Handle("/webhook", mw(yourHandler))
+    ```
+  </TabItem>
+  <TabItem label="Node.js / TypeScript">
+    ```ts
+    const decoded = jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] });
+    if (decoded.typ !== 'SWT') throw new Error('Invalid token type');
+
+    const [alg, expected] = decoded.webhook.hash.split(':');
+    const actual = crypto.createHash('sha256').update(rawBody).digest('hex');
+    if (!crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected))) {
+      return res.status(400).json({ error: 'PAYLOAD_MISMATCH' });
+    }
+    ```
+  </TabItem>
+  <TabItem label="Python">
+    ```python
+    decoded = jwt.decode(token, SECRET_KEY, algorithms=["HS256"], audience=EXPECTED_AUD)
+    expected_hash = decoded["webhook"]["hash"].split(":")[1]
+    actual_hash = hashlib.sha256(raw_body).hexdigest()
+    if not hmac.compare_digest(actual_hash, expected_hash):
+        raise ValueError("Payload hash mismatch")
+    ```
+  </TabItem>
+  <TabItem label="cURL">
+    ```bash
+    curl -X POST https://api.example.com/webhooks \
+      -H "Authorization: Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IlNXVCJ9..." \
+      -H "Content-Type: application/json" \
+      -d '{"event":"agent.tool.completed","status":"ok"}'
+    ```
+  </TabItem>
+</Tabs>

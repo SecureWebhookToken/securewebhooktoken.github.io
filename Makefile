@@ -1,20 +1,15 @@
-DOCKER_IMAGE := hugomods/hugo:exts
-DOCKER_RUN_CMD := docker compose run --rm
+.PHONY: all up dev build clean
 
 all: clean build
 
-up:
-	docker compose up server
+up: dev
 
-down:
-	docker compose down --remove-orphans
+dev:
+	npm run dev
 
 build:
-	$(DOCKER_RUN_CMD) server build --minify -d docs
+	rm -rf ./docs
+	npm run build
 
 clean:
-	rm -rf ./public
-	rm -rf ./resources/_gen
-
-shell:
-	$(DOCKER_RUN_CMD) server /bin/sh
+	rm -rf ./dist ./.astro ./docs

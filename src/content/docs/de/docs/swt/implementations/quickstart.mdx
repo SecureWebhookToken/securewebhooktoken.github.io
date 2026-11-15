@@ -1,0 +1,172 @@
+---
+title: Multi-Language Schnellstart
+description: Einheitliche Schnellstart-Anleitung für Secure Webhook Token (SWT) in Go, Node.js/TypeScript, Python und cURL.
+---
+
+import { Tabs, TabItem } from '@astrojs/starlight/components';
+
+## Serverseitige Verifizierung
+
+<Tabs>
+  <TabItem label="Go (swt v0.5.0)">
+    ```go
+    package main
+
+    import (
+        "encoding/json"
+        "log/slog"
+        "net/http"
+        "time"
+
+        "github.com/SecureWebhookToken/swt"
+    )
+
+    func main() {
+        secretKey := []byte("your-secret-key-min-256-bits")
+
+        opts := &swt.HandlerOptions{
+            ExpectedIssuer:   "https://auth.example.com",
+            ExpectedAudience: "https://api.example.com/webhooks",
+            ClockSkew:        1 * time.Minute,
+            ReplayChecker:    swt.NewMemoryReplayChecker(5 * time.Minute),
+        }
+
+        mw, err := swt.Middleware(secretKey, opts)
+        if err != nil {
+            slog.Fatal("Failed to init middleware", "error", err)
+        }
+
+        http.Handle("/webhook", mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+            token, _ := swt.FromContext(r.Context())
+            slog.Info("Verified webhook", "event", token.Webhook().Event, "jti", token.ID())
+
+            var payload map[string]any
+            _ = json.NewDecoder(r.Body).Decode(&payload)
+            w.WriteHeader(http.StatusOK)
+        })))
+
+        _ = http.ListenAndServe(":8080", nil)
+    }
+    ```
+  </TabItem>
+  <TabItem label="Node.js / TypeScript">
+    ```ts
+    import express from 'express';
+    import crypto from 'node:crypto';
+    import jwt from 'jsonwebtoken';
+
+    const app = express();
+    const SECRET_KEY = process.env.SWT_SECRET!;
+
+    app.post('/webhook', express.raw({ type: 'application/json' }), (req, res) => {
+      const token = req.headers.authorization?.replace('Bearer ', '');
+      if (!token) return res.status(401).json({ error: 'Missing token' });
+
+      try {
+        const decoded = jwt.verify(token, SECRET_KEY, {
+          algorithms: ['HS256'],
+          audience: 'https://api.example.com/webhooks',
+          issuer: 'https://auth.example.com',
+        }) as jwt.JwtPayload;
+
+        const [alg, expectedHash] = decoded.webhook.hash.split(':');
+        const actualHash = crypto.createHash('sha256').update(req.body).digest('hex');
+
+        if (!crypto.timingSafeEqual(Buffer.from(actualHash), Buffer.from(expectedHash))) {
+          return res.status(400).json({ error: 'PAYLOAD_MISMATCH' });
+        }
+
+        res.status(200).json({ status: 'ok', event: decoded.webhook.event });
+      } catch (err) {
+        res.status(401).json({ error: 'UNAUTHORIZED' });
+      }
+    });
+    ```
+  </TabItem>
+  <TabItem label="Python (FastAPI)">
+    ```python
+    import hashlib
+    import hmac
+    import jwt
+    from fastapi import FastAPI, Request, HTTPException
+
+    app = FastAPI()
+    SECRET_KEY = "your-secret-key-min-256-bits"
+
+    @app.post("/webhook")
+    async def receive_webhook(request: Request):
+        auth = request.headers.get("authorization", "")
+        if not auth.startswith("Bearer "):
+            raise HTTPException(status_code=401, detail="Missing Bearer token")
+
+        token = auth.removeprefix("Bearer ")
+        raw_body = await request.body()
+
+        decoded = jwt.decode(
+            token,
+            SECRET_KEY,
+            algorithms=["HS256"],
+            audience="https://api.example.com/webhooks",
+            issuer="https://auth.example.com",
+        )
+
+        if raw_body:
+            expected_hash = decoded["webhook"]["hash"].split(":")[1]
+            actual_hash = hashlib.sha256(raw_body).hexdigest()
+            if not hmac.compare_digest(actual_hash, expected_hash):
+                raise HTTPException(status_code=400, detail="Payload hash mismatch")
+
+        return {"status": "ok", "event": decoded["webhook"]["event"]}
+    ```
+  </TabItem>
+</Tabs>
+
+## Clientseitige Token-Generierung
+
+<Tabs>
+  <TabItem label="Go (swt v0.5.0)">
+    ```go
+    req := &swt.Request{
+        URL:      "https://api.example.com/webhooks",
+        Issuer:   "https://auth.example.com",
+        Audience: "https://api.example.com/webhooks",
+        Event:    "agent.tool.completed",
+        HashAlg:  swt.SHA256,
+        Data:     []byte(`{"taskId":"task_9f82c1","status":"completed"}`),
+    }
+
+    httpReq, err := req.Build(secretKey)
+    resp, err := http.DefaultClient.Do(httpReq)
+    ```
+  </TabItem>
+  <TabItem label="Node.js / TypeScript">
+    ```ts
+    const body = JSON.stringify({ taskId: 'task_9f82c1', status: 'completed' });
+    const hash = `sha-256:${crypto.createHash('sha256').update(body).digest('hex')}`;
+
+    const token = jwt.sign(
+      {
+        webhook: { event: 'agent.tool.completed', hash, retry_count: 0 },
+        jti: crypto.randomUUID(),
+      },
+      SECRET_KEY,
+      {
+        algorithm: 'HS256',
+        header: { alg: 'HS256', typ: 'SWT', kid: 'key-2026-q4' },
+        issuer: 'https://auth.example.com',
+        audience: 'https://api.example.com/webhooks',
+        expiresIn: '5m',
+      }
+    );
+    ```
+  </TabItem>
+  <TabItem label="cURL">
+    ```bash
+    # Generiere ein Token live im SWT Playground und sende es via cURL:
+    curl -X POST https://api.example.com/webhooks \
+      -H "Authorization: Bearer <SWT_TOKEN>" \
+      -H "Content-Type: application/json" \
+      -d '{"taskId":"task_9f82c1","status":"completed"}'
+    ```
+  </TabItem>
+</Tabs>

@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" fill="none">
+  <defs>
+    <linearGradient id="swt-grad" x1="8" y1="6" x2="56" y2="58" gradientUnits="userSpaceOnUse">
+      <stop offset="0%" stop-color="#38bdf8" />
+      <stop offset="50%" stop-color="#6366f1" />
+      <stop offset="100%" stop-color="#10b981" />
+    </linearGradient>
+  </defs>
+  <path d="M32 5L9 14.5V30.5C9 44.8 18.8 57.6 32 61C45.2 57.6 55 44.8 55 30.5V14.5L32 5Z" fill="#0f172a" stroke="url(#swt-grad)" stroke-width="3" stroke-linejoin="round"/>
+  <circle cx="24" cy="28" r="4" fill="#38bdf8"/>
+  <circle cx="40" cy="24" r="4" fill="#818cf8"/>
+  <circle cx="34" cy="41" r="4" fill="#10b981"/>
+  <path d="M27.5 26.5L36.5 24.5M26.5 31L32 38M38.5 27.5L35 37.5" stroke="#e2e8f0" stroke-width="2.2" stroke-linecap="round"/>
+</svg>
