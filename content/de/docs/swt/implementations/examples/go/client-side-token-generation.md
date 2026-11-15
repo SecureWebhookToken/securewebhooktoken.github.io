@@ -28,13 +28,14 @@ import (
 func main() {
     secretKey := []byte("your-secret-key-min-256-bits")
 
-    // Webhook-Request mit Payload erstellen
+    // Webhook-Request mit Payload und Zielgruppen-Targeting (Audience) erstellen
     req := &swt.Request{
-        URL:     "https://api.example.com/webhook",
-        Issuer:  "webhook-service.example.com",
-        Event:   "user.created",
-        HashAlg: swt.SHA256, // Optional: Standard ist SHA-256
-        Data:    []byte(`{"userId":"12345","email":"user@example.com"}`),
+        URL:      "https://api.example.com/webhook",
+        Issuer:   "https://auth.example.com",
+        Audience: "https://api.example.com/webhook",
+        Event:    "user.created",
+        HashAlg:  swt.SHA256, // Optional: Standard ist SHA-256
+        Data:     []byte(`{"userId":"12345","email":"user@example.com"}`),
     }
 
     // HTTP-Request mit eingebettetem SWT-Token erstellen

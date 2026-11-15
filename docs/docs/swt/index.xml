@@ -24,11 +24,13 @@
 &lt;p&gt;The header MUST contain the following fields:&lt;/p&gt;
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-json" data-lang="json"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;{
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;alg&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;HS256&amp;#34;&lt;/span&gt;,
-&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;typ&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;SWT&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;typ&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;SWT&amp;#34;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;kid&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;key-2026-q4&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;}
 &lt;/span&gt;&lt;/span&gt;&lt;/code&gt;&lt;/pre&gt;&lt;/div&gt;&lt;ul&gt;
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;alg&lt;/code&gt;&lt;/strong&gt;: Signature algorithm (HS256, HS384, HS512, RS256, or ES256)&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;typ&lt;/code&gt;&lt;/strong&gt;: Token type (MUST be &amp;ldquo;SWT&amp;rdquo; to distinguish from generic JWTs)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;kid&lt;/code&gt;&lt;/strong&gt; (Optional): Key ID identifying the public/symmetric key used for verification, enabling seamless key rotation and JWKS integration&lt;/li&gt;
 &lt;/ul&gt;
 &lt;h3 id="payload-requirements-claims"&gt;
  Payload Requirements (Claims)
@@ -43,14 +45,15 @@
 &lt;ul&gt;
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;event&lt;/code&gt;&lt;/strong&gt;: String describing the webhook event type (e.g., &amp;ldquo;payment.received&amp;rdquo;)&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;hash&lt;/code&gt;&lt;/strong&gt;: Cryptographic hash of the request body (REQUIRED when body is non-empty, MUST be absent for empty bodies)&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;retry_count&lt;/code&gt;&lt;/strong&gt;: (Optional) Non-negative integer indicating delivery attempt number&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;retry_count&lt;/code&gt;&lt;/strong&gt;: (Optional) Non-negative integer indicating delivery attempt number (0 = initial, 1+ = retry)&lt;/li&gt;
 &lt;/ul&gt;
 &lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;iss&lt;/code&gt;&lt;/strong&gt; (Issuer): Token issuer identifier&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;iss&lt;/code&gt;&lt;/strong&gt; (Issuer): Token issuer identifier (URL or URN recommended)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;aud&lt;/code&gt;&lt;/strong&gt; (Audience): Intended recipient endpoint or service identifier (REQUIRED in Draft-03 to prevent cross-service token reuse)&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;exp&lt;/code&gt;&lt;/strong&gt; (Expiration): Token expiration timestamp&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;nbf&lt;/code&gt;&lt;/strong&gt; (Not Before): Timestamp from when the token is valid&lt;/li&gt;
 &lt;li&gt;&lt;strong&gt;&lt;code&gt;iat&lt;/code&gt;&lt;/strong&gt; (Issued At): Token creation timestamp&lt;/li&gt;
-&lt;li&gt;&lt;strong&gt;&lt;code&gt;jti&lt;/code&gt;&lt;/strong&gt; (JWT ID): Unique token identifier (UUID recommended)&lt;/li&gt;
+&lt;li&gt;&lt;strong&gt;&lt;code&gt;jti&lt;/code&gt;&lt;/strong&gt; (JWT ID): Unique token identifier (UUID recommended, required for replay defense)&lt;/li&gt;
 &lt;/ul&gt;
 &lt;h4 id="optional-claims"&gt;
  Optional Claims
@@ -66,9 +69,11 @@
 &lt;div class="highlight"&gt;&lt;pre tabindex="0" style="color:#f8f8f2;background-color:#272822;-moz-tab-size:4;-o-tab-size:4;tab-size:4;"&gt;&lt;code class="language-json" data-lang="json"&gt;&lt;span style="display:flex;"&gt;&lt;span&gt;{
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;webhook&amp;#34;&lt;/span&gt;: {
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;event&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;user.created&amp;#34;&lt;/span&gt;,
-&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;hash&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3&amp;#34;&lt;/span&gt;
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;hash&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3&amp;#34;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;retry_count&amp;#34;&lt;/span&gt;: &lt;span style="color:#ae81ff"&gt;0&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; },
-&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;iss&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;webhook-service.example.com&amp;#34;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;iss&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;https://auth.example.com&amp;#34;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;aud&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;https://api.example.com/webhooks&amp;#34;&lt;/span&gt;,
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;exp&amp;#34;&lt;/span&gt;: &lt;span style="color:#ae81ff"&gt;1703952000&lt;/span&gt;,
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;nbf&amp;#34;&lt;/span&gt;: &lt;span style="color:#ae81ff"&gt;1703948400&lt;/span&gt;,
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;iat&amp;#34;&lt;/span&gt;: &lt;span style="color:#ae81ff"&gt;1703948400&lt;/span&gt;,
@@ -83,7 +88,8 @@
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;webhook&amp;#34;&lt;/span&gt;: {
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;event&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;health.check&amp;#34;&lt;/span&gt;
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; },
-&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;iss&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;webhook-service.example.com&amp;#34;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;iss&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;https://auth.example.com&amp;#34;&lt;/span&gt;,
+&lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;aud&amp;#34;&lt;/span&gt;: &lt;span style="color:#e6db74"&gt;&amp;#34;https://api.example.com/webhooks&amp;#34;&lt;/span&gt;,
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;exp&amp;#34;&lt;/span&gt;: &lt;span style="color:#ae81ff"&gt;1703952000&lt;/span&gt;,
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;nbf&amp;#34;&lt;/span&gt;: &lt;span style="color:#ae81ff"&gt;1703948400&lt;/span&gt;,
 &lt;/span&gt;&lt;/span&gt;&lt;span style="display:flex;"&gt;&lt;span&gt; &lt;span style="color:#f92672"&gt;&amp;#34;iat&amp;#34;&lt;/span&gt;: &lt;span style="color:#ae81ff"&gt;1703948400&lt;/span&gt;,

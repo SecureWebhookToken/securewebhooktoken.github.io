@@ -24,12 +24,14 @@ The header MUST contain the following fields:
 ```json
 {
   "alg": "HS256",
-  "typ": "SWT"
+  "typ": "SWT",
+  "kid": "key-2026-q4"
 }
 ```
 
 - **`alg`**: Signature algorithm (HS256, HS384, HS512, RS256, or ES256)
 - **`typ`**: Token type (MUST be "SWT" to distinguish from generic JWTs)
+- **`kid`** (Optional): Key ID identifying the public/symmetric key used for verification, enabling seamless key rotation and JWKS integration
 
 ### Payload Requirements (Claims)
 
@@ -38,12 +40,13 @@ The header MUST contain the following fields:
 - **`webhook`**: Custom claim containing:
   - **`event`**: String describing the webhook event type (e.g., "payment.received")
   - **`hash`**: Cryptographic hash of the request body (REQUIRED when body is non-empty, MUST be absent for empty bodies)
-  - **`retry_count`**: (Optional) Non-negative integer indicating delivery attempt number
-- **`iss`** (Issuer): Token issuer identifier
+  - **`retry_count`**: (Optional) Non-negative integer indicating delivery attempt number (0 = initial, 1+ = retry)
+- **`iss`** (Issuer): Token issuer identifier (URL or URN recommended)
+- **`aud`** (Audience): Intended recipient endpoint or service identifier (REQUIRED in Draft-03 to prevent cross-service token reuse)
 - **`exp`** (Expiration): Token expiration timestamp
 - **`nbf`** (Not Before): Timestamp from when the token is valid
 - **`iat`** (Issued At): Token creation timestamp
-- **`jti`** (JWT ID): Unique token identifier (UUID recommended)
+- **`jti`** (JWT ID): Unique token identifier (UUID recommended, required for replay defense)
 
 #### Optional Claims
 
@@ -55,9 +58,11 @@ The header MUST contain the following fields:
 {
   "webhook": {
     "event": "user.created",
-    "hash": "sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3"
+    "hash": "sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
+    "retry_count": 0
   },
-  "iss": "webhook-service.example.com",
+  "iss": "https://auth.example.com",
+  "aud": "https://api.example.com/webhooks",
   "exp": 1703952000,
   "nbf": 1703948400,
   "iat": 1703948400,
@@ -73,7 +78,8 @@ The header MUST contain the following fields:
   "webhook": {
     "event": "health.check"
   },
-  "iss": "webhook-service.example.com",
+  "iss": "https://auth.example.com",
+  "aud": "https://api.example.com/webhooks",
   "exp": 1703952000,
   "nbf": 1703948400,
   "iat": 1703948400,
@@ -171,4 +177,12 @@ Implementations SHOULD return appropriate HTTP status codes:
 
 - **400 Bad Request**: Malformed token structure or hash mismatch
 - **401 Unauthorized**: Signature verification failure or expired token
-- **403 Forbidden**: Valid token but insufficient permissions
+- **403 Forbidden**: Valid token but insufficient permissions or issuer/audience mismatch
+
+## Autonomous AI Agent Workflows (A2A)
+
+In autonomous agentic architectures and Model Context Protocol (MCP) environments, incoming webhooks deliver tool results or external event triggers directly into LLM context windows:
+
+- **Indirect Prompt Injection Defense**: Because the request body is cryptographically bound to the signed token via `webhook.hash`, untrusted intermediaries cannot tamper with tool responses or inject malicious instructions into downstream agent reasoning loops.
+- **Stateless Reactive Wakeup**: Agents in dormant, cost-saving states are only resumed when an authentic, unexpired token with matching `iss` and `aud` arrives.
+- **Delegation Provenance**: The `iss` (caller identity), `aud` (target agent identity), and `retry_count` claims establish cross-boundary provenance for multi-agent delegation.

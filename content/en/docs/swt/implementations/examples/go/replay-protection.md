@@ -6,7 +6,44 @@ title: "Replay Protection"
 
 ## Replay Protection
 
-### In-Memory Replay Protection
+### Built-in In-Memory Replay Protection
+
+The `swt` library includes a thread-safe, out-of-the-box `MemoryReplayChecker` with automatic TTL eviction:
+
+```go
+package main
+
+import (
+    "log/slog"
+    "net/http"
+    "time"
+
+    "github.com/SecureWebhookToken/swt"
+)
+
+func main() {
+    secretKey := []byte("your-secret-key-min-256-bits")
+
+    // Use built-in MemoryReplayChecker with 5-minute TTL
+    opts := &swt.HandlerOptions{
+        ReplayChecker: swt.NewMemoryReplayChecker(5 * time.Minute),
+    }
+
+    mw, err := swt.Middleware(secretKey, opts)
+    if err != nil {
+        slog.Error("Failed to initialize middleware", "error", err)
+        return
+    }
+
+    http.Handle("/webhook", mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        w.WriteHeader(http.StatusOK)
+    })))
+
+    _ = http.ListenAndServe(":8080", nil)
+}
+```
+
+### Custom In-Memory Replay Protection Implementation
 
 ```go
 package main

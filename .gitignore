@@ -1,5 +1,4 @@
-# IDE specific
-.idea/
+.DS_Store
 
 ### Hugo template
 # Generated files by hugo

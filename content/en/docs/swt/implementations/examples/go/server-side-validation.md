@@ -6,7 +6,63 @@ title: "Server-side Validation"
 
 ## Server-side Validation
 
-### Basic Webhook Handler
+### Standard HTTP Middleware (Recommended)
+
+`swt.Middleware` seamlessly integrates with standard Go `net/http` routers (Chi, Echo, Gin, etc.), verifies the token and streaming body hash in a single pass, restores `r.Body`, and injects the validated token into the request context:
+
+```go
+package main
+
+import (
+    "encoding/json"
+    "log/slog"
+    "net/http"
+    "time"
+
+    "github.com/SecureWebhookToken/swt"
+)
+
+func main() {
+    secretKey := []byte("your-secret-key-min-256-bits")
+
+    opts := &swt.HandlerOptions{
+        ExpectedIssuer:   "https://auth.example.com",
+        ExpectedAudience: "https://api.example.com/webhooks",
+        ClockSkew:        1 * time.Minute,
+        ReplayChecker:    swt.NewMemoryReplayChecker(5 * time.Minute),
+    }
+
+    mw, err := swt.Middleware(secretKey, opts)
+    if err != nil {
+        slog.Error("Failed to initialize middleware", "error", err)
+        return
+    }
+
+    webhookHandler := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+        token, ok := swt.FromContext(r.Context())
+        if !ok {
+            http.Error(w, "Unauthorized", http.StatusUnauthorized)
+            return
+        }
+
+        slog.Info("Webhook received", "event", token.Webhook().Event, "jti", token.ID())
+
+        // Read restored request body
+        var data map[string]any
+        if err := json.NewDecoder(r.Body).Decode(&data); err != nil {
+            http.Error(w, "Invalid body", http.StatusBadRequest)
+            return
+        }
+
+        w.WriteHeader(http.StatusOK)
+    })
+
+    http.Handle("/webhook", mw(webhookHandler))
+    _ = http.ListenAndServe(":8080", nil)
+}
+```
+
+### Dedicated Webhook Handler Function
 
 ```go
 package main

@@ -5,16 +5,17 @@ title: "Secure Webhook Token (SWT) Dokumentation"
 
 # Secure Webhook Token (SWT) Dokumentation
 
-Diese Dokumentation beschreibt die IETF Draft Spezifikation für Secure Webhook Tokens (SWT) basierend auf [`draft-knauer-secure-webhook-token-02`](https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/02/).
+Diese Dokumentation beschreibt die IETF Draft Spezifikation für Secure Webhook Tokens (SWT) basierend auf [`draft-knauer-secure-webhook-token-03`](https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/03/).
 
 Secure Webhook Token (SWT) ist ein spezialisiertes JSON Web Token (JWT)-Format, das für die sichere Autorisierung und Verifizierung von Webhook-Anfragen via HTTP POST entwickelt wurde.
 
 ## Hauptfunktionen
 
-- **Standardisiert**: Basiert auf bewährten JWT-Standards mit spezialisierten Webhook-Claims
-- **Sicher**: Integrierter Replay-Schutz, Hash-Validierung und Algorithmus-Whitelisting
-- **Flexibel**: Unterstützt sowohl leere als auch nicht-leere Request-Bodies
-- **Interoperabel**: Verwendet standardisierte Hash-Algorithmusnamen und hexadezimale Kodierung
+- **Standardisiert**: Basiert auf bewährten JWT-Standards (RFC 7519) mit spezialisierten `webhook`-Claims und explizitem Typing (`typ: "SWT"`)
+- **Sicher**: Integrierter Replay-Schutz (`jti`), kryptographische Body-Hash-Validierung, Audience-Schutz (`aud`) gegen Cross-Service-Replay und Algorithmus-Whitelisting
+- **Agentic & A2A Ready**: Bietet essenziellen Schutz gegen Indirect Prompt Injection und Payload-Poisoning in autonomen Multi-Agenten-Systemen
+- **Flexibel**: Unterstützt leere, strukturierte und unstrukturierte Request-Bodies mit konfigurierbarer Clock-Skew-Toleranz
+- **Interoperabel**: Verwendet standardisierte Hash-Algorithmusnamen (SHA-2, SHA-3) und hexadezimale Kodierung
 
 ## Navigation
 
