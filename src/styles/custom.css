@@ -34,6 +34,10 @@
   background-clip: text;
 }
 
+.hero .action {
+  white-space: nowrap;
+}
+
 /* Comparison matrix & tables */
 .swt-matrix {
   display: block;
