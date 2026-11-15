@@ -91,6 +91,8 @@ Traditional webhook schemes either rely on proprietary HMAC headers without stan
 
 ## Built for Autonomous AI Agents &amp; A2A Workflows
 
+In agentic systems (A2A, MCP, async tool callbacks), incoming webhook bodies feed directly into LLM context windows—making payload integrity a prerequisite against prompt injection and unauthorized token burn.
+
 <CardGrid>
   <Card title="Indirect Prompt Injection Defense" icon="approve-check-circle">
     Because the HTTP body is cryptographically bound via <code>webhook.hash</code>, untrusted intermediaries cannot alter tool results or inject malicious instructions into LLM context windows.

@@ -7,13 +7,15 @@
 
 ---
 
-## 1. Purpose & AI Agent (A2A / MCP) Security
+## 1. Purpose & Why SWT is Purpose-Built for AI Agents (A2A / MCP)
 
-Secure Webhook Token (SWT) binds an HTTP POST request body to a signed JSON Web Token (JWT). Unlike generic JWTs (which leave the HTTP body unsigned) or proprietary HMAC headers (which lack standardized issuer/audience/replay metadata), SWT provides:
+In traditional web apps, a webhook payload updates a database row. In autonomous AI agent architectures (Agent-to-Agent / A2A, Model Context Protocol / MCP, async tool callbacks), incoming webhook payloads are injected directly into an LLM context window—turning any tampered payload into a potential **indirect prompt injection** or **unauthorized compute/token-burn trigger**.
 
-1. **Indirect Prompt Injection Defense**: Because `webhook.hash` cryptographically binds the raw HTTP body to the signed token, untrusted intermediaries cannot tamper with tool results or inject malicious instructions into downstream LLM context windows.
-2. **Stateless Reactive Wakeups**: Dormant AI agents only resume when an authentic, unexpired SWT with matching `iss` and `aud` arrives.
-3. **Delegation Provenance**: `iss` (caller), `aud` (target agent endpoint), `jti` (replay ID), and `webhook.retry_count` establish verifiable multi-agent provenance.
+Generic JWTs leave the HTTP request body unsigned, and proprietary HMAC headers lack standardized issuer, audience, and replay-protection semantics across heterogeneous agent frameworks. SWT solves this in a single IETF-standardized profile:
+
+1. **Indirect Prompt Injection Defense**: `webhook.hash` cryptographically binds the exact HTTP body bytes to the signed JWT. Any 1-byte modification by an untrusted proxy or intermediary fails constant-time hash verification (`400 Bad Request`) before the payload ever reaches the LLM.
+2. **Stateless Reactive Wakeups & Compute Guard**: Dormant agents wake up only when a valid, short-lived SWT (`exp`, `nbf`) with matching `iss` and `aud` arrives. Mandatory `jti` replay protection prevents attackers from replaying callbacks to trigger duplicate LLM reasoning loops.
+3. **Cross-Boundary Delegation Provenance**: `iss` (calling agent/service), `aud` (target agent endpoint), `jti` (unique delivery ID), and `webhook.retry_count` establish verifiable multi-agent provenance without shared session state.
 
 ---
 
