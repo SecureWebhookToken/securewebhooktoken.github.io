@@ -1,36 +1,38 @@
 # Secure Webhook Token (SWT)
 
-> Secure Webhook Token (SWT) is an IETF Internet-Draft specification (`draft-knauer-secure-webhook-token-03`) defining a specialized JSON Web Token (JWT) profile for cryptographically bound, replay-protected, and AI-agent-safe HTTP POST webhook authentication.
+> Secure Webhook Token (SWT) is an IETF Internet-Draft specification (`draft-knauer-secure-webhook-token-03`) defining a specialized JSON Web Token (JWT) profile for cryptographically bound, replay-protected webhook authentication over HTTPS POST.
 
-## Why SWT is Purpose-Built for AI Agents & Autonomous Workflows
+## Why SWT Fits AI Agents & Autonomous Workflows
 
-In autonomous agentic systems (A2A, MCP, async tool callbacks), incoming webhook payloads feed directly into an LLM's context window—making the payload itself an execution surface:
+In autonomous agentic systems (A2A, MCP, async tool callbacks), incoming webhook payloads feed directly into an LLM's context window:
 
-- **Indirect Prompt Injection Defense**: `webhook.hash` cryptographically binds the raw HTTP body to the signed JWT, ensuring untrusted intermediaries cannot tamper with tool outputs or inject malicious instructions.
-- **Stateless Reactive Wakeups & Cost Protection**: Dormant agents only resume (and consume LLM tokens) when an authentic, unexpired token with verified `iss` and `aud` arrives; `jti` replay protection blocks duplicate wakeups.
-- **Zero-Trust Multi-Agent Delegation**: `iss` (caller agent/tool), `aud` (target agent endpoint), and `webhook.retry_count` provide verifiable cross-boundary provenance without shared session state.
+- **Cryptographic Payload Integrity for AI Agent Workflows**: `webhook.hash` binds the raw HTTP body to the signed JWT so tampered or unauthenticated payloads are rejected before reaching downstream agents. (SWT proves sender authenticity and payload integrity; it does not sanitize malicious instructions from an authorized sender or replace prompt-injection defenses.)
+- **Stateless Reactive Wakeups & Cost Protection**: Dormant agents resume only when an authentic, unexpired token with verified `iss` and `aud` arrives; atomic `jti` replay protection blocks duplicate wakeups.
+- **Cross-Boundary Provenance**: `iss`, `aud` (when used), and `webhook.retry_count` establish verifiable delivery context without shared session state.
 
-## Core Protocol Invariants
+## Core Protocol Summary
 
-- **Transport**: HTTP POST over HTTPS (TLS 1.2+ required, TLS 1.3 recommended).
-- **Header**: `Authorization: Bearer <SWT>`
-- **JWT Header**: MUST include `alg` (`HS256`, `HS384`, `HS512`, `RS256`, or `ES256` — `none` MUST be rejected), `typ: "SWT"`, and optional `kid` for key/JWKS rotation.
-- **Required Claims**: `webhook` (`event`, `hash` when body is non-empty, optional `retry_count`), `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`.
-- **Body Binding**: `webhook.hash` uses `"<algorithm>:<hex_value>"` (`sha-256`, `sha-384`, `sha-512`, `sha3-256`, `sha3-384`, `sha3-512`). For empty bodies, `webhook.hash` MUST be absent.
-- **Error Mapping**: `400` malformed token or hash mismatch; `401` invalid signature or expired/not-yet-valid token; `403` issuer/audience mismatch.
+- **Normative Source**: `draft-knauer-secure-webhook-token-03` (the IETF Internet-Draft is authoritative).
+- **Transport & Header**: HTTPS POST (`TLS 1.2+`, `TLS 1.3` recommended) with `Authorization: Bearer <SWT>`.
+- **Header**: `alg` (`HS256`, `HS384`, `HS512`, `RS256`, `ES256` — reject `none`), `typ: "SWT"`, optional `kid`.
+- **Required Claims**: `webhook` (`event`, `hash` for non-empty bodies, optional `retry_count`), `iss`, `exp`, `nbf`, `iat`, `jti`. `aud` is RECOMMENDED in general and REQUIRED for asymmetric keys or multi-subscriber delivery.
 
 ## Agent & Machine-Readable Resources
 
-- [Full LLM Context Bundle](https://securewebhooktoken.github.io/llms-full.txt): Complete specification, validation steps, and Go/Node.js/Python reference code in a single plain-text file.
+- [Full Agent Implementation Guide](https://securewebhooktoken.github.io/llms-full.txt): 10-section receiver/sender implementation guide aligned with Draft-03.
 - [SWT Claims JSON Schema](https://securewebhooktoken.github.io/schemas/swt-claims.schema.json): JSON Schema (Draft 2020-12) for SWT payload validation.
+- [SWT Conformance Test Suite](https://github.com/SecureWebhookToken/swt-conformance): Language-independent conformance runner, schemas, test-only keys, and 56 Draft-03 test vectors (`vectors/draft-03/`).
+- [Runnable Node.js Reference Verifier](https://github.com/SecureWebhookToken/securewebhooktoken.github.io/blob/main/examples/swt-verifier.mjs): Zero-dependency 18-step verifier.
+- [Runnable Python Reference Verifier](https://github.com/SecureWebhookToken/securewebhooktoken.github.io/blob/main/examples/swt_verifier.py): Zero-dependency 18-step verifier.
+- [SWT Agent Skill](https://github.com/SecureWebhookToken/securewebhooktoken.github.io/tree/main/skills/secure-webhook-token): Reusable Agent Skill (`SKILL.md`, references, and test vectors).
 - [Interactive SWT Playground](https://securewebhooktoken.github.io/playground/): Client-side Web Crypto generator and verifier.
 
 ## Documentation
 
-- [SWT Specification (Draft-03)](https://securewebhooktoken.github.io/docs/swt/specification/): Full technical specification, claims, hash formats, and A2A workflows.
-- [Security Guidelines](https://securewebhooktoken.github.io/docs/swt/security/): Replay protection, algorithm allowlisting, and clock skew tolerance.
-- [Error Handling](https://securewebhooktoken.github.io/docs/swt/error-handling/): HTTP status codes, structured error classes, logging, and rate limiting.
-- [Multi-Language Quickstart](https://securewebhooktoken.github.io/docs/swt/implementations/quickstart/): Copy-paste examples for Go (`v0.5.0`), Node.js/TypeScript, Python, and cURL.
+- [SWT Specification (Draft-03)](https://securewebhooktoken.github.io/docs/swt/specification/)
+- [Security Guidelines](https://securewebhooktoken.github.io/docs/swt/security/)
+- [Error Handling](https://securewebhooktoken.github.io/docs/swt/error-handling/)
+- [Implementation Guides](https://securewebhooktoken.github.io/docs/swt/implementations/quickstart/)
 
 ## Reference Implementations & Standards
 

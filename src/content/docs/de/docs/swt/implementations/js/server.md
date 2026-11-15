@@ -5,7 +5,11 @@ description: "Validiere Secure Webhook Tokens in Node.js und Express: JWT-Signat
 
 ## Server-seitige Validierung (Node.js)
 
-### Vollständige SWT-Validierung
+:::note[Teil-Illustration]
+Das folgende Snippet zeigt die Kernprüfungen für JWT und `webhook.hash`. Einen **vollständigen, ausführbaren 18-Schritte-Referenz-Verifier** (HTTPS/POST-Pflicht, Body-Größenlimits, Constant-Time-Digest-Vergleich, `kid`-Schutz, atomarer Replay-Schutz und Draft-03 HTTP-Statuscodes), verifiziert gegen die [SWT Conformance Test Suite](https://github.com/SecureWebhookToken/swt-conformance), finden Sie unter [`examples/swt-verifier.mjs`](https://github.com/SecureWebhookToken/securewebhooktoken.github.io/blob/main/examples/swt-verifier.mjs).
+:::
+
+### Kern-Validierung für SWT
 
 ```javascript
 const jwt = require('jsonwebtoken');

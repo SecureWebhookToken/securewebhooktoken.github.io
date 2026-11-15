@@ -4,7 +4,7 @@
   "title": "Secure Webhook Token (SWT) Payload Claims",
   "description": "JWT payload schema for Secure Webhook Tokens per IETF draft-knauer-secure-webhook-token-03.",
   "type": "object",
-  "required": ["webhook", "iss", "aud", "exp", "nbf", "iat", "jti"],
+  "required": ["webhook", "iss", "exp", "nbf", "iat", "jti"],
   "properties": {
     "webhook": {
       "type": "object",
@@ -35,7 +35,7 @@
     "aud": {
       "type": "string",
       "minLength": 1,
-      "description": "Intended recipient endpoint or service identifier."
+      "description": "Intended recipient endpoint or service identifier. RECOMMENDED in general; REQUIRED when using asymmetric signing keys (RS256, ES256) or multi-subscriber delivery per Draft-03."
     },
     "exp": {
       "type": "integer",

@@ -40,17 +40,19 @@ Der Header MUSS folgende Felder enthalten:
   - **`hash`**: Kryptographischer Hash des Request-Bodys (ERFORDERLICH bei nicht-leerem Body, MUSS bei leerem Body fehlen)
   - **`retry_count`**: (Optional) Nicht-negative Ganzzahl für Zustellungsversuche (0 = Initial, 1+ = Retry)
 - **`iss`** (Issuer): Token-Aussteller-Identifikator
-- **`aud`** (Audience): Autorisierter Ziel-Empfänger bzw. Endpoint (ERFORDERLICH in Draft-03 zur Verhinderung von Cross-Service-Replay)
-- **`exp`** (Expiration): Token-Ablaufzeitstempel
-- **`nbf`** (Not Before): Zeitstempel, ab wann das Token gültig ist
-- **`iat`** (Issued At): Zeitstempel der Token-Erstellung
-- **`jti`** (JWT ID): Eindeutige Token-Identifikation (UUID empfohlen, zwingend für Replay-Schutz)
+- **`exp`** (Expiration): Token-Ablaufzeitstempel (Unix-Epoch-Sekunden; Token MUSS nach diesem Zeitpunkt abgelehnt werden)
+- **`nbf`** (Not Before): Zeitstempel, ab wann das Token gültig ist (Unix-Epoch-Sekunden; Token MUSS vor diesem Zeitpunkt abgelehnt werden)
+- **`iat`** (Issued At): Zeitstempel der Token-Erstellung (Unix-Epoch-Sekunden; dokumentiert den Ausstellungszeitpunkt, unabhängig von `nbf` und `exp`)
+- **`jti`** (JWT ID): Eindeutige Token-Identifikation (UUID empfohlen, zwingend für Replay-Schutz; jeder Retry MUSS eine neue `jti` verwenden)
 
-#### Optionale Claims
+#### Empfohlene / Bedingt erforderliche & Optionale Claims
 
-- **`sub`** (Subject): Subjekt-Identifikator
+- **`aud`** (Audience): Autorisierter Ziel-Empfänger bzw. Endpoint (**EMPFOHLEN** im Allgemeinen; **ERFORDERLICH** in Draft-03 bei Verwendung asymmetrischer Schlüssel wie `RS256`/`ES256` oder Multi-Subscriber-Zustellung zur Verhinderung von Cross-Service-Replay)
+- **`sub`** (Subject): Optionaler Subjekt-Identifikator
 
 #### Beispiel Payload mit Body-Hash
+
+> Hinweis: Die folgenden Zeitstempel (`iat`, `nbf`, `exp`) sind rein illustrative Beispielwerte. Produktive Sender MÜSSEN aktuelle Unix-Zeitstempel dynamisch erzeugen und SOLLTEN Token-Laufzeiten (`exp - iat`) auf maximal 15 Minuten (900 Sekunden) begrenzen.
 
 ```json
 {
@@ -61,7 +63,7 @@ Der Header MUSS folgende Felder enthalten:
   },
   "iss": "https://auth.example.com",
   "aud": "https://api.example.com/webhooks",
-  "exp": 1703952000,
+  "exp": 1703949300,
   "nbf": 1703948400,
   "iat": 1703948400,
   "jti": "550e8400-e29b-41d4-a716-446655440000",
@@ -78,7 +80,7 @@ Der Header MUSS folgende Felder enthalten:
   },
   "iss": "https://auth.example.com",
   "aud": "https://api.example.com/webhooks",
-  "exp": 1703952000,
+  "exp": 1703949300,
   "nbf": 1703948400,
   "iat": 1703948400,
   "jti": "550e8400-e29b-41d4-a716-446655440001"
@@ -144,10 +146,10 @@ Jeder `jti`-Wert MUSS nur einmal innerhalb der Token-Gültigkeitsdauer akzeptier
 
 ### Zeitvalidierung
 
-Implementierungen sollten:
-- Etwa 60 Sekunden Uhrzeiten-Toleranz zulassen
-- Tokens ablehnen, bei denen die aktuelle Zeit vor `nbf` oder nach `exp` liegt
-- Token-Lebensdauer typischerweise auf maximal 15 Minuten begrenzen
+Gemäß Draft-03 Implementierungsempfehlung (`SHOULD`):
+- Etwa 60 Sekunden Uhrzeiten-Toleranz (Clock Skew) zulassen (Implementierungsempfehlung, kein starrer Protokollwert)
+- Tokens ablehnen, bei denen die aktuelle Zeit vor `nbf` (abzgl. Toleranz) oder nach `exp` (zzgl. Toleranz) liegt
+- Token-Lebensdauer (`exp - iat`) typischerweise auf maximal 15 Minuten (900 Sekunden) begrenzen
 
 ### Schlüsselverwaltung
 
@@ -181,6 +183,6 @@ Implementierungen SOLLTEN entsprechende HTTP-Statuscodes zurückgeben:
 
 In autonomen Multi-Agenten-Architekturen und Model Context Protocol (MCP) Umgebungen leiten Webhooks asynchrone Tool-Ergebnisse oder Event-Trigger direkt in die Context-Windows von LLMs:
 
-- **Schutz vor Indirect Prompt Injection**: Durch die kryptographische Bindung des Request-Bodys via `webhook.hash` an das signierte JWT können Angreifer keine manipulierten Daten oder bösartigen Prompts in nachgelagerte Reasoning-Loops einschleusen.
+- **Kryptographische Payload-Integrität**: Durch die kryptographische Bindung des Request-Bodys via `webhook.hash` an das signierte JWT werden manipulierte Payloads abgelehnt, bevor sie nachgelagerte Agenten-Loops erreichen. SWT schützt jedoch nicht vor bösartigen Anweisungen eines autorisierten Senders und ersetzt keine Prompt-Injection-Filter, Inhaltsvalidierung oder Autorisierungsrichtlinien.
 - **Stateless Reactive Wakeup**: Ruhende, kostensparende Agenten werden nur dann aufgeweckt, wenn ein authentisches, gültiges Token mit passendem `iss` und `aud` empfangen wird.
 - **Delegations-Herkunft (Provenance)**: `iss` (Identität des Senders), `aud` (Identität des Ziel-Agenten) und `retry_count` etablieren eine lückenlose Audit-Chain über Vertrauensgrenzen hinweg.

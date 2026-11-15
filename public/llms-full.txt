@@ -1,25 +1,37 @@
-# Secure Webhook Token (SWT) — Full Agent Context
+# Secure Webhook Token (SWT) — Agent Implementation Guide (`draft-knauer-secure-webhook-token-03`)
 
-> Specification: `draft-knauer-secure-webhook-token-03` (IETF Internet-Draft)
-> Website: https://securewebhooktoken.github.io/
-> Go Reference Library: https://github.com/SecureWebhookToken/swt (v0.5.0)
-> JSON Schema: https://securewebhooktoken.github.io/schemas/swt-claims.schema.json
+> This document is an AI-oriented implementation guide. The IETF Internet-Draft `draft-knauer-secure-webhook-token-03` is the sole normative source of truth.
 
 ---
 
-## 1. Purpose & Why SWT is Purpose-Built for AI Agents (A2A / MCP)
+## 1. Purpose and Security Boundaries
 
-In traditional web apps, a webhook payload updates a database row. In autonomous AI agent architectures (Agent-to-Agent / A2A, Model Context Protocol / MCP, async tool callbacks), incoming webhook payloads are injected directly into an LLM context window—turning any tampered payload into a potential **indirect prompt injection** or **unauthorized compute/token-burn trigger**.
+Secure Webhook Token (SWT) is a specialized JWT profile (`typ: "SWT"`) for authenticating HTTP POST webhook requests and binding the raw request body to a signed token via `webhook.hash`.
 
-Generic JWTs leave the HTTP request body unsigned, and proprietary HMAC headers lack standardized issuer, audience, and replay-protection semantics across heterogeneous agent frameworks. SWT solves this in a single IETF-standardized profile:
+### What SWT Guarantees
+- **Sender Authenticity**: Verifies the token was signed by a trusted `iss` using an allowlisted cryptographic algorithm.
+- **Cryptographic Payload Integrity**: `webhook.hash` binds the exact raw HTTP POST body octets to the signed JWT, ensuring tampered or unauthenticated payloads are rejected before reaching downstream handlers or LLM context windows.
+- **Replay Protection**: Unique `jti` values combined with short lifetimes (`exp`, `nbf`) prevent token replay.
 
-1. **Indirect Prompt Injection Defense**: `webhook.hash` cryptographically binds the exact HTTP body bytes to the signed JWT. Any 1-byte modification by an untrusted proxy or intermediary fails constant-time hash verification (`400 Bad Request`) before the payload ever reaches the LLM.
-2. **Stateless Reactive Wakeups & Compute Guard**: Dormant agents wake up only when a valid, short-lived SWT (`exp`, `nbf`) with matching `iss` and `aud` arrives. Mandatory `jti` replay protection prevents attackers from replaying callbacks to trigger duplicate LLM reasoning loops.
-3. **Cross-Boundary Delegation Provenance**: `iss` (calling agent/service), `aud` (target agent endpoint), `jti` (unique delivery ID), and `webhook.retry_count` establish verifiable multi-agent provenance without shared session state.
+### What SWT Does NOT Guarantee
+- **Not a Prompt-Injection Sanitizer**: SWT does **not** guarantee that content from an *authorized* sender is safe for LLM consumption. It does not replace prompt-injection defenses, input sanitization, content validation, or agent authorization policies.
+- **Not Application-Level Event Idempotency**: `jti` prevents *token* replay; each retry mints a new `jti`. Logical event deduplication across retries requires an application-level event ID.
 
 ---
 
-## 2. Token Structure
+## 2. Normative Specification References
+
+- **IETF Internet-Draft**: https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/03/
+- **Draft Source**: https://github.com/SecureWebhookToken/swt-internet-draft
+- **JSON Schema (Draft 2020-12)**: https://securewebhooktoken.github.io/schemas/swt-claims.schema.json
+- **Conformance Test Suite**: https://github.com/SecureWebhookToken/swt-conformance (`vectors/draft-03/`, 56 normative & advisory test vectors)
+- **Go Reference Library (`v0.5.0`)**: https://github.com/SecureWebhookToken/swt
+
+Normative keywords (`MUST`, `SHOULD`, `MAY`) below reflect `draft-knauer-secure-webhook-token-03`. Implementation guidance (such as `~60s` clock skew and `<= 15m` token lifetime) is explicitly marked as `SHOULD` / implementation guidance.
+
+---
+
+## 3. Token Structure
 
 ### JWT Header
 ```json
@@ -29,107 +41,140 @@ Generic JWTs leave the HTTP request body unsigned, and proprietary HMAC headers 
   "kid": "key-2026-q4"
 }
 ```
-- `alg`: MUST be on receiver allowlist (`HS256`, `HS384`, `HS512`, `RS256`, `ES256`). `"none"` MUST be rejected.
-- `typ`: MUST be `"SWT"`.
-- `kid` (optional): Key ID for key rotation / JWKS lookup.
+- `alg` (MUST): Allowlisted signing algorithm (`HS256`, `HS384`, `HS512`, `RS256`, `ES256`). Receivers MUST reject `"none"` and any algorithm not in their explicit allowlist.
+- `typ` (MUST): MUST be `"SWT"`.
+- `kid` (OPTIONAL): Key identifier for key rotation / JWKS lookup. Receivers MUST validate `kid` against a local allowlist or trusted key map and MUST NOT perform arbitrary URL or filesystem lookups from untrusted `kid` headers.
 
-### JWT Payload (Claims)
-```json
-{
-  "webhook": {
-    "event": "agent.tool.completed",
-    "hash": "sha-256:a665a45920422f9d417e4867efdc4fb8a04a1f3fff1fa07e998e86f7f7a27ae3",
-    "retry_count": 0
-  },
-  "iss": "https://mcp-gateway.example.com",
-  "aud": "https://orchestrator.example.com/a2a/webhook",
-  "exp": 1703952000,
-  "nbf": 1703948400,
-  "iat": 1703948400,
-  "jti": "550e8400-e29b-41d4-a716-446655440000"
-}
-```
-- `webhook.event`: Required non-empty event type string.
-- `webhook.hash`: `"<alg>:<hex>"` where `<alg>` is one of `sha-256`, `sha-384`, `sha-512`, `sha3-256`, `sha3-384`, `sha3-512` and `<hex>` is lowercase hexadecimal.
-  - Non-empty body -> `webhook.hash` is REQUIRED.
-  - Empty body -> `webhook.hash` MUST be absent.
-- `webhook.retry_count`: Optional non-negative integer (`0` = initial delivery).
-- `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`: Required. `sub` is optional.
+### JWT Payload Claims
+- `webhook` (REQUIRED object):
+  - `event` (REQUIRED non-empty string): Event type identifier (e.g., `"agent.tool.completed"`).
+  - `hash` (REQUIRED when HTTP body is non-empty; MUST be absent when body is empty): Format `"<algorithm>:<hex_digest>"`. Supported algorithms: `sha-256`, `sha-384`, `sha-512`, `sha3-256`, `sha3-384`, `sha3-512`. Computed over the **raw** HTTP body octets (no JSON re-serialization).
+  - `retry_count` (OPTIONAL non-negative integer): `0` = initial delivery, `1+` = retry.
+- `iss` (REQUIRED string): Token issuer identifier.
+- `aud` (RECOMMENDED in general; **REQUIRED** for asymmetric keys `RS256`/`ES256` or multi-subscriber delivery): Intended recipient endpoint or service identifier.
+- `exp` (REQUIRED integer, NumericDate): Expiration timestamp (Unix epoch seconds).
+- `nbf` (REQUIRED integer, NumericDate): Not-Before timestamp (Unix epoch seconds).
+- `iat` (REQUIRED integer, NumericDate): Issued-At timestamp (Unix epoch seconds). Distinct from `nbf` (activation) and `exp` (expiry).
+- `jti` (REQUIRED string): Unique token ID (UUID recommended) for replay protection.
+- `sub` (OPTIONAL string): Subject identifier.
+
+> **Illustrative Timestamp Note**: Never hardcode static timestamps in production. Generate `iat`, `nbf`, and `exp` dynamically (`exp - iat <= 900` seconds recommended).
 
 ---
 
-## 3. Mandatory Receiver Validation Order
+## 4. Receiver Validation Checklist (18 Steps)
 
-1. Verify HTTP method is `POST` over HTTPS (TLS 1.2+ / 1.3).
-2. Extract Bearer token from `Authorization: Bearer <token>`.
-3. Verify JWT structure, algorithm allowlist (reject `"none"`), `typ == "SWT"`, and cryptographic signature (using `kid` if present).
-4. Validate `exp` and `nbf` (recommended clock skew leeway: 60s; recommended max lifetime: <= 15m).
-5. Validate `iss` and `aud` against expected values.
-6. Confirm `webhook` claim exists and `webhook.event` is present.
-7. Body hash check:
-   - Non-empty body: require `webhook.hash`, compute hash of raw body bytes, compare in constant time.
-   - Empty body: confirm `webhook.hash` is absent.
-8. Replay check: verify `jti` has not been seen within the token's validity window.
+Receivers MUST enforce all checks without accepting partially validated tokens or trusting unverified JWT claims:
 
-### HTTP Status Codes
-- `400 Bad Request`: Malformed token, missing required claim, or `webhook.hash` mismatch.
-- `401 Unauthorized`: Missing/invalid signature, `typ != "SWT"`, expired/not-yet-valid token, or replayed `jti`.
-- `403 Forbidden`: Valid signature/hash, but `iss` or `aud` mismatch / unauthorized caller.
+1. **HTTPS Transport**: Reject non-HTTPS requests (`TLS 1.2+` required, `TLS 1.3` recommended).
+2. **HTTP Method**: Require `POST`.
+3. **Body Size Limit**: Enforce an explicit maximum request body size before buffering/hashing (e.g., 1 MiB) -> `413` / `400`.
+4. **Bearer Extraction**: Extract `Authorization: Bearer <token>`. Reject missing/malformed headers -> `401`.
+5. **JWT Structure**: Verify exact 3-part base64url `<header>.<payload>.<signature>` structure -> `400`.
+6. **Algorithm Allowlist**: Parse header, reject `alg: "none"` or any algorithm outside the receiver's configured allowlist (`HS256`, `HS384`, `HS512`, `RS256`, `ES256`). Never pick verification algorithms solely from an untrusted header.
+7. **Token Type**: Verify `header.typ === "SWT"` -> `400`/`401`.
+8. **Safe `kid` Lookup**: Resolve verification key using a trusted `KeyProvider` / local map; reject unknown `kid` -> `401`.
+9. **Signature Verification**: Verify cryptographic signature before trusting any payload claim -> `401`.
+10. **Required Claims**: Verify presence and types of `iss`, `exp`, `nbf`, `iat`, `jti`, and `webhook` -> `400`.
+11. **Time Validation (`exp`, `nbf`, `iat`)**: Apply implementation-configured clock skew tolerance (guidance: `~60s`). Reject `now - skew >= exp` or `now + skew < nbf` -> `401`.
+12. **Issuer & Audience**: Verify `iss` matches expected issuer and `aud` matches expected audience (when configured or required) -> `403`.
+13. **`webhook.event` & `retry_count`**: Verify `webhook.event` is a non-empty string; if `webhook.retry_count` is present, verify it is an integer `>= 0` -> `400`.
+14. **Raw Body Hashing / Empty Body Rule**:
+    - If `rawBody.length > 0`: `webhook.hash` MUST be present -> `400` if missing.
+    - If `rawBody.length === 0`: `webhook.hash` MUST be absent -> `400` if present.
+15. **Hash Algorithm Validation**: Parse `<alg>:<hex>` and verify `<alg>` is in the supported allowlist (`sha-256`, `sha-384`, `sha-512`, `sha3-256`, `sha3-384`, `sha3-512`) -> `400`.
+16. **Malformed Hash Encoding**: Verify `<hex>` is valid lowercase/even-length hex matching the expected digest byte length for `<alg>` -> `400`.
+17. **Constant-Time Digest Comparison**: Decode both expected and computed digests into raw equal-length byte buffers and compare with `crypto.timingSafeEqual` / `hmac.compare_digest` / `subtle.ConstantTimeCompare` -> `400` on mismatch.
+18. **Atomic Replay Protection**: Atomically reserve `(iss, jti)` in a distributed store with `TTL = max(1, (exp - now) + clockSkew)`. Reject duplicates -> `401`. Fail closed (`503`) if the store is unavailable.
 
 ---
 
-## 4. Reference Implementations
+## 5. Secure Implementation Examples
 
-### Go (`github.com/SecureWebhookToken/swt@v0.5.0`)
+### Complete Runnable Verifiers (Zero-Dependency)
+- **Node.js (ESM)**: `examples/swt-verifier.mjs` — implements all 18 steps (`HS256`/`HS384`/`HS512`).
+- **Python (3.9+)**: `examples/swt_verifier.py` — implements all 18 steps (`HS256`/`HS384`/`HS512`).
+
+### Go Reference Library (`github.com/SecureWebhookToken/swt v0.5.0`)
 ```go
-opts := &swt.HandlerOptions{
-    ExpectedIssuer:   "https://auth.example.com",
-    ExpectedAudience: "https://api.example.com/webhooks",
-    ClockSkew:        1 * time.Minute,
-    ReplayChecker:    swt.NewMemoryReplayChecker(5 * time.Minute),
-}
-
-mw, err := swt.Middleware(secretKey, opts)
+hash, err := swt.NewHash(swt.SHA256, payload)
 if err != nil {
-    log.Fatal(err)
+    log.Fatalf("hash error: %v", err)
 }
-http.Handle("/webhook", mw(yourHandler))
-```
 
-### Node.js / TypeScript
-```ts
-const { header, payload } = jwt.verify(token, SECRET_KEY, {
-  algorithms: ['HS256'],
-  audience: 'https://api.example.com/webhooks',
-  issuer: 'https://auth.example.com',
-  complete: true,
-}) as { header: jwt.JwtHeader; payload: jwt.JwtPayload };
-
-if (header.typ !== 'SWT') return res.status(401).json({ error: 'INVALID_TOKEN_TYPE' });
-
-const [, expectedHash] = payload.webhook.hash.split(':');
-const actualHash = crypto.createHash('sha256').update(rawBody).digest('hex');
-if (!crypto.timingSafeEqual(Buffer.from(actualHash), Buffer.from(expectedHash))) {
-  return res.status(400).json({ error: 'PAYLOAD_MISMATCH' });
-}
-```
-
-### Python (FastAPI)
-```python
-header = jwt.get_unverified_header(token)
-if header.get("typ") != "SWT":
-    raise HTTPException(status_code=401, detail="Invalid token type")
-
-decoded = jwt.decode(
-    token,
-    SECRET_KEY,
-    algorithms=["HS256"],
-    audience="https://api.example.com/webhooks",
-    issuer="https://auth.example.com",
+token, err := swt.New(
+    "https://sender.example.com",
+    "agent.task.completed",
+    hash,
+    swt.WithID(uuid.NewString()),
+    swt.WithAudience("https://agent.example.com/webhook"),
+    swt.WithExpiresAt(time.Now().Add(5*time.Minute)),
+    swt.WithNotBefore(time.Now()),
+    swt.WithIssuedAt(time.Now()),
 )
-if raw_body:
-    expected_hash = decoded["webhook"]["hash"].split(":")[1]
-    actual_hash = hashlib.sha256(raw_body).hexdigest()
-    if not hmac.compare_digest(actual_hash, expected_hash):
-        raise HTTPException(status_code=400, detail="Payload hash mismatch")
 ```
+Receiver middleware (`v0.5.0`):
+```go
+handler := swt.NewHandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+    token, ok := swt.TokenFromContext(r.Context())
+    if !ok {
+        http.Error(w, "missing token", http.StatusUnauthorized)
+        return
+    }
+    _ = token.Webhook().Event
+    w.WriteHeader(http.StatusOK)
+}, swt.HandlerOptions{
+    KeyProvider:      keyProvider,
+    ExpectedIssuer:   "https://sender.example.com",
+    ExpectedAudience: "https://agent.example.com/webhook",
+    ReplayChecker:    redisReplayChecker, // atomic SET NX EX
+    ClockSkew:        60 * time.Second,
+    MaxBodySize:      1 << 20,
+})
+```
+*Note on Go `v0.5.0`*: `swt.go` runs `ReplayChecker` before body hash verification and maps invalid/expired/replayed tokens to `400` in its built-in middleware. If strict `401`/`403` mapping per Draft-03 Section 11 is required, inspect errors in a custom handler or track upstream library updates.
+
+---
+
+## 6. Replay and Retry Handling
+
+- **Atomic Distributed Reservation**: In-memory `Set`/`Map` replay tracking is unsafe across multiple workers/pods and susceptible to concurrent TOCTOU races.
+  - **Redis**: `SET swt:jti:<iss>:<jti> 1 EX <ttl> NX` (check `result === "OK"`).
+  - **PostgreSQL**: `INSERT INTO swt_used_jti (iss, jti, expires_at) VALUES ($1, $2, $3) ON CONFLICT (iss, jti) DO NOTHING RETURNING jti`.
+- **Retention**: Store `(iss, jti)` until at least `exp + clockSkew`.
+- **Fail-Closed**: If mandatory replay storage is unreachable, reject with `503 Service Unavailable`.
+- **Retries vs. Event Idempotency**: Per Draft-03 Section 7.9, each retry MUST mint a new `jti` and increment `webhook.retry_count`. Deduplicate logical business events using an application-level event ID after SWT verification succeeds.
+
+---
+
+## 7. Error Handling
+
+Per Draft-03 Section 11:
+- **400 Bad Request**: Malformed JWT, missing required claims, missing/unexpected `webhook.hash`, unsupported hash algorithm, malformed hash hex, hash mismatch, invalid `retry_count`.
+- **401 Unauthorized**: Missing/malformed Bearer token, invalid signature, `alg: "none"` / unallowlisted `alg`, wrong `typ`, expired (`exp`) or premature (`nbf`), replayed `jti`.
+- **403 Forbidden**: Valid token, but `iss` or `aud` mismatch / unauthorized caller.
+- **503 Service Unavailable**: Mandatory replay store unavailable (fail closed).
+
+---
+
+## 8. Conformance Testing
+
+Run your implementation against the language-independent **SWT Conformance Test Suite** (`https://github.com/SecureWebhookToken/swt-conformance`):
+- Contains 56 deterministic Draft-03 test vectors (`vectors/draft-03/`: valid, invalid, boundary, security) and test-only keys (`fixtures/keys/`).
+- Uses a minimal stdin/stdout JSON adapter protocol (`runners/README.md`) so any language (Go, Node.js, Python, Rust, TypeScript) can be verified with `./swt-conformance run`.
+
+---
+
+## 9. AI Agent Integration Guidance
+
+- Verify the SWT **before** passing any webhook payload into an LLM prompt, tool call, or agent memory store.
+- Enforce `iss` and `aud` allowlists per agent endpoint so tokens minted for one agent cannot wake up or impersonate another.
+- Treat authenticated payloads as **untrusted data** with respect to prompt content: apply schema validation, output filtering, and least-privilege tool authorization even after SWT passes.
+
+---
+
+## 10. Known Limitations and Security Considerations
+
+- **Draft-03 Empty-Body Wording**: Section 5.2 & 11 state `webhook.hash` MUST be absent for empty bodies, whereas Section 10.2 says SHOULD be omitted. Strict receivers SHOULD reject `webhook.hash` on empty bodies (`400`) per Section 11.
+- **No Content Confidentiality**: JWT payloads are base64url-encoded, not encrypted; always rely on HTTPS/TLS 1.2+ and avoid sensitive secrets inside JWT claims.
+- **Symmetric Key Sharing**: `HS256`/`HS384`/`HS512` require shared secrets (>= 256 bits). Use `RS256` or `ES256` with `aud` when multiple subscribers or untrusted verifiers exist.

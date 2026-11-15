@@ -82,7 +82,7 @@ Traditional webhook schemes either rely on proprietary HMAC headers without stan
       <td><strong>AI Agent / A2A Safe</strong></td>
       <td>No provenance</td>
       <td>Payload vulnerable</td>
-      <td class="swt-col-highlight">Prompt-injection &amp; wakeup safe</td>
+      <td class="swt-col-highlight">Authenticated payload integrity &amp; wakeup verification</td>
     </tr>
   </tbody>
 </table>
@@ -91,11 +91,11 @@ Traditional webhook schemes either rely on proprietary HMAC headers without stan
 
 ## Built for Autonomous AI Agents &amp; A2A Workflows
 
-In agentic systems (A2A, MCP, async tool callbacks), incoming webhook bodies feed directly into LLM context windows—making payload integrity a prerequisite against prompt injection and unauthorized token burn.
+In agentic systems (A2A, MCP, async tool callbacks), incoming webhook bodies feed directly into LLM context windows—making cryptographic authenticity and payload integrity essential before agent processing. SWT proves sender identity and prevents unauthorized payload modification, though it does not replace prompt-injection defenses or content validation for authorized senders.
 
 <CardGrid>
-  <Card title="Indirect Prompt Injection Defense" icon="approve-check-circle">
-    Because the HTTP body is cryptographically bound via <code>webhook.hash</code>, untrusted intermediaries cannot alter tool results or inject malicious instructions into LLM context windows.
+  <Card title="Cryptographic Payload Integrity for AI Agent Workflows" icon="approve-check-circle">
+    Because the HTTP body is cryptographically bound via <code>webhook.hash</code>, tampered or unauthenticated payloads are rejected before reaching downstream agents. (Does not sanitize malicious instructions from an authorized sender.)
   </Card>
   <Card title="Stateless Reactive Wakeups" icon="rocket">
     Dormant agents wake up only when a valid, unexpired SWT arrives with verified <code>iss</code> (caller) and <code>aud</code> (target agent) claims.

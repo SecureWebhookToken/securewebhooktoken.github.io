@@ -82,7 +82,7 @@ Herkömmliche Webhook-Verfahren setzen entweder auf proprietäre HMAC-Header ohn
       <td><strong>AI Agent / A2A Sicher</strong></td>
       <td>Keine Herkunfts-Claims</td>
       <td>Payload angreifbar</td>
-      <td class="swt-col-highlight">Schutz vor Indirect Prompt Injection</td>
+      <td class="swt-col-highlight">Authentifizierte Payload-Integrität &amp; Wakeup-Prüfung</td>
     </tr>
   </tbody>
 </table>
@@ -91,11 +91,11 @@ Herkömmliche Webhook-Verfahren setzen entweder auf proprietäre HMAC-Header ohn
 
 ## Entwickelt für autonome KI-Agenten &amp; A2A-Workflows
 
-In agentischen Systemen (A2A, MCP, asynchrone Tool-Callbacks) fließen eingehende Webhook-Payloads direkt in das LLM-Kontextfenster — kryptographische Payload-Integrität wird damit zum Schutz gegen Prompt Injection und unnötigen Token-Verbrauch.
+In agentischen Systemen (A2A, MCP, asynchrone Tool-Callbacks) fließen eingehende Webhook-Payloads direkt in das LLM-Kontextfenster — kryptographische Authentizität und Payload-Integrität vor der Agenten-Verarbeitung sind daher entscheidend. SWT verhindert unbefugte Payload-Manipulationen, ersetzt jedoch keine Prompt-Injection-Filter oder Autorisierungsrichtlinien für autorisierte Sender.
 
 <CardGrid>
-  <Card title="Schutz vor Indirect Prompt Injection" icon="approve-check-circle">
-    Da der HTTP-Body kryptographisch über <code>webhook.hash</code> an das signierte Token gebunden ist, können Zwischeninstanzen keine Tool-Ergebnisse manipulieren oder schädliche Prompts einschleusen.
+  <Card title="Kryptographische Payload-Integrität für KI-Agenten-Workflows" icon="approve-check-circle">
+    Da der HTTP-Body kryptographisch über <code>webhook.hash</code> an das signierte Token gebunden ist, werden manipulierte oder unauthentifizierte Payloads vor Erreichen des Agenten abgelehnt. (Schützt nicht vor bösartigen Inhalten eines autorisierten Senders.)
   </Card>
   <Card title="Zustandsloses Reaktives Aufwecken" icon="rocket">
     Schlafende Agenten werden nur geweckt, wenn ein authentisches, nicht abgelaufenes SWT mit verifiziertem <code>iss</code> und <code>aud</code> eintrifft.

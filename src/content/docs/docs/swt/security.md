@@ -14,18 +14,57 @@ All webhook communication must occur over HTTPS. HTTP connections are not permit
 
 ## Token Security
 
-### Implement Replay Protection
-```javascript
-// Example: JTI-based replay protection
-const usedTokens = new Set();
+### Atomic Replay Protection (`jti`)
 
-function checkReplayProtection(jti) {
-  if (usedTokens.has(jti)) {
-    throw new Error('Token already used (replay attack)');
+An in-memory `Set` or `Map` is **not sufficient** for distributed or multi-worker production deployments and is vulnerable to time-of-check/time-of-use (TOCTOU) race conditions under concurrent webhook deliveries.
+
+Production receivers MUST:
+- **Reserve `jti` atomically** (single compare-and-set operation) rather than separate read-then-write checks.
+- **Scope keys by issuer** (e.g., `swt:jti:<iss>:<jti>`) to prevent cross-issuer collisions.
+- **Retain keys for the full acceptance window**: `TTL = max(1, (exp - now) + clockSkewSeconds)`.
+- **Use a distributed store** (e.g., Redis or SQL database) shared across all receiver instances.
+- **Fail closed** when replay protection is mandatory and the replay store is unavailable (return `503 Service Unavailable` rather than bypassing replay checks).
+
+#### Redis Atomic Reservation Example
+
+```javascript
+// Atomic reservation via Redis SET NX EX
+async function reserveJtiRedis(redis, iss, jti, exp, clockSkew = 60) {
+  const now = Math.floor(Date.now() / 1000);
+  const ttlSeconds = Math.max(1, exp - now + clockSkew);
+  const key = `swt:jti:${iss}:${jti}`;
+
+  // Returns "OK" only if the key did not exist; null on replay or concurrent duplicate
+  const reserved = await redis.set(key, '1', 'EX', ttlSeconds, 'NX');
+  if (reserved !== 'OK') {
+    throw new Error('Token replay detected (jti already used)');
   }
-  usedTokens.add(jti);
 }
 ```
+
+#### PostgreSQL Atomic Reservation Example
+
+```sql
+-- Atomic reservation table
+CREATE TABLE IF NOT EXISTS swt_used_jti (
+  iss TEXT NOT NULL,
+  jti TEXT NOT NULL,
+  expires_at TIMESTAMPTZ NOT NULL,
+  PRIMARY KEY (iss, jti)
+);
+
+-- Single atomic statement: 0 rows returned means replay or concurrent duplicate
+INSERT INTO swt_used_jti (iss, jti, expires_at)
+VALUES ($1, $2, to_timestamp($3))
+ON CONFLICT (iss, jti) DO NOTHING
+RETURNING jti;
+```
+
+### Retry Semantics vs. Event Idempotency
+
+Do not confuse **token replay protection** with **application-level event idempotency**:
+- **Token replay protection (`jti`)**: Per Draft-03 Section 7.9, each webhook retry MUST mint a fresh SWT with a **new, unique `jti`** and updated `webhook.retry_count` (e.g., `0`, `1`, `2`). Reusing an old token on retry is a replay and MUST be rejected.
+- **Application event idempotency**: If your application must process a logical webhook event at most once across legitimate retries, deduplicate on a domain-level event identifier (for example, an `event_id` in the JSON body or an `Idempotency-Key` header) after the SWT signature, body hash, and `jti` checks succeed.
 
 ### Validate Token Timing
 ```javascript
@@ -72,36 +111,13 @@ All SWT tokens must be transmitted via HTTP POST. The validation workflow is:
 ## Best Practices
 
 ### Token Lifetime
-- **Short validity period**: Typically no more than 15 minutes
-- **Clock skew tolerance**: Approximately 60 seconds for time validation
+- **Short validity period**: Typically no more than 15 minutes (`exp - iat <= 900s`, implementation guidance)
+- **Clock skew tolerance**: Approximately 60 seconds for time validation (implementation guidance, not a hard protocol constant)
 - **Minimum TLS version**: TLS 1.2+ (TLS 1.3 recommended)
 
-### Replay Protection
-- **JTI tracking**: Store already used token IDs
-- **TTL-based cleanup**: Automatically remove old JTIs
-
-```javascript
-// Example: TTL-based JTI cleanup
-class TokenReplayProtection {
-  constructor() {
-    this.usedTokens = new Map();
-  }
-  
-  addToken(jti, expiration) {
-    this.usedTokens.set(jti, expiration);
-    this.cleanupExpiredTokens();
-  }
-  
-  cleanupExpiredTokens() {
-    const now = Date.now() / 1000;
-    for (const [jti, exp] of this.usedTokens.entries()) {
-      if (exp < now) {
-        this.usedTokens.delete(jti);
-      }
-    }
-  }
-}
-```
+### AI Agent Trust Boundaries
+- SWT provides **cryptographic sender authenticity and payload integrity**, ensuring tampered or unauthenticated payloads are rejected before reaching an LLM or agent tool.
+- SWT does **not** sanitize malicious instructions originating from an authorized sender and does not replace prompt-injection defenses, content validation, or agent authorization policies.
 
 ### Monitoring and Logging
 - **Log failed validations**

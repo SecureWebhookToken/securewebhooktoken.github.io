@@ -165,7 +165,10 @@ func main() {
 
     // Hash für die Payload erstellen
     payload := []byte(`{"userId":"12345"}`)
-    hash := swt.NewHash(swt.SHA256, payload)
+    hash, err := swt.NewHash(swt.SHA256, payload)
+    if err != nil {
+        log.Fatalf("Fehler beim Erstellen des Payload-Hash: %v", err)
+    }
 
     // Token mit Event und Hash erstellen
     token, err := swt.New(

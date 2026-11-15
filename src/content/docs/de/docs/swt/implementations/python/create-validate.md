@@ -3,6 +3,10 @@ title: "Python: SWT erstellen & validieren"
 description: "Implementiere Secure Webhook Token Generierung und Verifizierung in Python mit PyJWT und hashlib für SHA-256-Body-Bindung und Replay-Schutz."
 ---
 
+:::note[Teil-Illustration]
+Das folgende Snippet illustriert Token-Erzeugung und Kern-Validierung. Einen **vollständigen, ausführbaren 18-Schritte-Referenz-Verifier** (HTTPS/POST-Pflicht, Body-Größenlimits, Constant-Time-Digest-Vergleich, `kid`-Schutz, atomarer Replay-Schutz und Draft-03 HTTP-Statuscodes), verifiziert gegen die [SWT Conformance Test Suite](https://github.com/SecureWebhookToken/swt-conformance), finden Sie unter [`examples/swt_verifier.py`](https://github.com/SecureWebhookToken/securewebhooktoken.github.io/blob/main/examples/swt_verifier.py).
+:::
+
 ```python
 import jwt
 import hashlib

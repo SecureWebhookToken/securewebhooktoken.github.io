@@ -256,11 +256,16 @@ func webhookHandler(w http.ResponseWriter, r *http.Request) {
         }
 
         // Compute hash of received body
-        computedHash := swt.NewHash(webhook.Hash.Algorithm(), body)
-        if computedHash.String() != webhook.Hash.String() {
+        computedHash, err := swt.NewHash(webhook.Hash.Algorithm(), body)
+        if err != nil {
+            http.Error(w, "Unsupported hash algorithm", http.StatusBadRequest)
+            return
+        }
+        if !webhook.Hash.Verify(body) {
             http.Error(w, "Payload hash mismatch", http.StatusBadRequest)
             return
         }
+        _ = computedHash
     } else {
         // Empty body must not have hash
         if webhook.Hash != nil {

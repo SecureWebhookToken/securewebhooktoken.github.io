@@ -40,17 +40,19 @@ The header MUST contain the following fields:
   - **`hash`**: Cryptographic hash of the request body (REQUIRED when body is non-empty, MUST be absent for empty bodies)
   - **`retry_count`**: (Optional) Non-negative integer indicating delivery attempt number (0 = initial, 1+ = retry)
 - **`iss`** (Issuer): Token issuer identifier (URL or URN recommended)
-- **`aud`** (Audience): Intended recipient endpoint or service identifier (REQUIRED in Draft-03 to prevent cross-service token reuse)
-- **`exp`** (Expiration): Token expiration timestamp
-- **`nbf`** (Not Before): Timestamp from when the token is valid
-- **`iat`** (Issued At): Token creation timestamp
-- **`jti`** (JWT ID): Unique token identifier (UUID recommended, required for replay defense)
+- **`exp`** (Expiration): Token expiration timestamp (Unix epoch seconds; token MUST be rejected after this time)
+- **`nbf`** (Not Before): Timestamp from when the token is valid (Unix epoch seconds; token MUST be rejected before this time)
+- **`iat`** (Issued At): Token creation timestamp (Unix epoch seconds; records when the token was minted, distinct from `nbf` activation and `exp` expiry)
+- **`jti`** (JWT ID): Unique token identifier (UUID recommended, required for replay defense; each retry MUST use a new `jti`)
 
-#### Optional Claims
+#### Recommended / Conditionally Required & Optional Claims
 
-- **`sub`** (Subject): Subject identifier
+- **`aud`** (Audience): Intended recipient endpoint or service identifier (**RECOMMENDED** in general; **REQUIRED** in Draft-03 when using asymmetric signing keys such as `RS256`/`ES256` or multi-subscriber delivery to prevent cross-service token reuse)
+- **`sub`** (Subject): Optional subject identifier
 
 #### Example Payload with Body Hash
+
+> Note: Timestamps below (`iat`, `nbf`, `exp`) are illustrative static values. Production senders MUST generate current Unix timestamps dynamically and SHOULD keep token lifetimes (`exp - iat`) at 15 minutes (900 seconds) or less.
 
 ```json
 {
@@ -61,7 +63,7 @@ The header MUST contain the following fields:
   },
   "iss": "https://auth.example.com",
   "aud": "https://api.example.com/webhooks",
-  "exp": 1703952000,
+  "exp": 1703949300,
   "nbf": 1703948400,
   "iat": 1703948400,
   "jti": "550e8400-e29b-41d4-a716-446655440000",
@@ -78,7 +80,7 @@ The header MUST contain the following fields:
   },
   "iss": "https://auth.example.com",
   "aud": "https://api.example.com/webhooks",
-  "exp": 1703952000,
+  "exp": 1703949300,
   "nbf": 1703948400,
   "iat": 1703948400,
   "jti": "550e8400-e29b-41d4-a716-446655440001"
@@ -144,10 +146,10 @@ Each `jti` value MUST only be accepted once within the token's validity period. 
 
 ### Time Validation
 
-Implementations should:
-- Allow approximately 60 seconds of clock skew tolerance
-- Reject tokens where current time is before `nbf` or after `exp`
-- Limit token lifetime to typically no more than 15 minutes
+Per Draft-03 implementation guidance (`SHOULD`):
+- Allow approximately 60 seconds of clock skew tolerance (implementation guidance, not a hard protocol constant)
+- Reject tokens where current time is before `nbf` (minus skew) or after `exp` (plus skew)
+- Limit token lifetime (`exp - iat`) to typically no more than 15 minutes (900 seconds)
 
 ### Key Management
 
@@ -181,6 +183,6 @@ Implementations SHOULD return appropriate HTTP status codes:
 
 In autonomous agentic architectures and Model Context Protocol (MCP) environments, incoming webhooks deliver tool results or external event triggers directly into LLM context windows:
 
-- **Indirect Prompt Injection Defense**: Because the request body is cryptographically bound to the signed token via `webhook.hash`, untrusted intermediaries cannot tamper with tool responses or inject malicious instructions into downstream agent reasoning loops.
+- **Cryptographic Payload Integrity**: Because the request body is cryptographically bound to the signed token via `webhook.hash`, untrusted intermediaries cannot tamper with tool responses and tampered payloads are rejected before reaching downstream agent reasoning loops. However, SWT does not sanitize malicious instructions originating from an authorized sender and does not replace prompt-injection defenses, content validation, or agent authorization policies.
 - **Stateless Reactive Wakeup**: Agents in dormant, cost-saving states are only resumed when an authentic, unexpired token with matching `iss` and `aud` arrives.
 - **Delegation Provenance**: The `iss` (caller identity), `aud` (target agent identity), and `retry_count` claims establish cross-boundary provenance for multi-agent delegation.
