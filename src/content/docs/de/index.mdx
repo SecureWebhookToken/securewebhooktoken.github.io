@@ -146,15 +146,21 @@ Herkömmliche Webhook-Verfahren setzen entweder auf proprietäre HMAC-Header ohn
     }
 
     mw, err := swt.Middleware(secretKey, opts)
+    if err != nil {
+        log.Fatal(err)
+    }
     http.Handle("/webhook", mw(yourHandler))
     ```
   </TabItem>
   <TabItem label="Node.js / TypeScript">
     ```ts
-    const decoded = jwt.verify(token, SECRET_KEY, { algorithms: ['HS256'] });
-    if (decoded.typ !== 'SWT') throw new Error('Invalid token type');
+    const { header, payload } = jwt.verify(token, SECRET_KEY, {
+      algorithms: ['HS256'],
+      complete: true,
+    }) as { header: jwt.JwtHeader; payload: jwt.JwtPayload };
+    if (header.typ !== 'SWT') throw new Error('Invalid token type');
 
-    const [alg, expected] = decoded.webhook.hash.split(':');
+    const [, expected] = payload.webhook.hash.split(':');
     const actual = crypto.createHash('sha256').update(rawBody).digest('hex');
     if (!crypto.timingSafeEqual(Buffer.from(actual), Buffer.from(expected))) {
       return res.status(400).json({ error: 'PAYLOAD_MISMATCH' });

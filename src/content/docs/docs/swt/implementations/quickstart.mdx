@@ -33,7 +33,8 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
 
         mw, err := swt.Middleware(secretKey, opts)
         if err != nil {
-            slog.Fatal("Failed to init middleware", "error", err)
+            slog.Error("Failed to init middleware", "error", err)
+            return
         }
 
         http.Handle("/webhook", mw(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -63,20 +64,23 @@ import { Tabs, TabItem } from '@astrojs/starlight/components';
       if (!token) return res.status(401).json({ error: 'Missing token' });
 
       try {
-        const decoded = jwt.verify(token, SECRET_KEY, {
+        const { header, payload } = jwt.verify(token, SECRET_KEY, {
           algorithms: ['HS256'],
           audience: 'https://api.example.com/webhooks',
           issuer: 'https://auth.example.com',
-        }) as jwt.JwtPayload;
+          complete: true,
+        }) as { header: jwt.JwtHeader; payload: jwt.JwtPayload };
 
-        const [alg, expectedHash] = decoded.webhook.hash.split(':');
+        if (header.typ !== 'SWT') return res.status(401).json({ error: 'INVALID_TOKEN_TYPE' });
+
+        const [, expectedHash] = payload.webhook.hash.split(':');
         const actualHash = crypto.createHash('sha256').update(req.body).digest('hex');
 
         if (!crypto.timingSafeEqual(Buffer.from(actualHash), Buffer.from(expectedHash))) {
           return res.status(400).json({ error: 'PAYLOAD_MISMATCH' });
         }
 
-        res.status(200).json({ status: 'ok', event: decoded.webhook.event });
+        res.status(200).json({ status: 'ok', event: payload.webhook.event });
       } catch (err) {
         res.status(401).json({ error: 'UNAUTHORIZED' });
       }

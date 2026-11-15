@@ -7,7 +7,7 @@ title: "Client-seitige Token-Generierung"
 ### Installation
 
 ```bash
-go get github.com/SecureWebhookToken/swt@v0.4.0
+go get github.com/SecureWebhookToken/swt@v0.5.0
 ```
 
 ### Grundlegende Token-Erstellung und -Versand
