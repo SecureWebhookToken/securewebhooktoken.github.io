@@ -38,6 +38,14 @@
   white-space: nowrap;
 }
 
+/* Widen content container on pages hosting the interactive SWT Playground */
+@media (min-width: 64rem) {
+  .main-pane:has(.swt-pg),
+  [data-has-hero] .main-pane:has(.swt-pg) {
+    --sl-content-width: 78rem;
+  }
+}
+
 /* Comparison matrix & tables */
 .swt-matrix {
   display: block;

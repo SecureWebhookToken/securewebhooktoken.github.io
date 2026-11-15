@@ -179,8 +179,8 @@
 
 .swt-pg-textarea {
   resize: vertical;
-  min-height: 120px;
-  line-height: 1.45;
+  min-height: 180px;
+  line-height: 1.5;
 }
 
 .swt-pg-token-box {
