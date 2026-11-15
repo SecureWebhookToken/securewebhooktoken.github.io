@@ -1,0 +1,5 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://securewebhooktoken.github.io/sitemap-index.xml
+LLMs-Txt: https://securewebhooktoken.github.io/llms.txt

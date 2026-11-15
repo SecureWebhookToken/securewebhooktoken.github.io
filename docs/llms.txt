@@ -1,0 +1,31 @@
+# Secure Webhook Token (SWT)
+
+> Secure Webhook Token (SWT) is an IETF Internet-Draft specification (`draft-knauer-secure-webhook-token-03`) defining a specialized JSON Web Token (JWT) profile for cryptographically bound, replay-protected, and AI-agent-safe HTTP POST webhook authentication.
+
+## Core Protocol Invariants
+
+- **Transport**: HTTP POST over HTTPS (TLS 1.2+ required, TLS 1.3 recommended).
+- **Header**: `Authorization: Bearer <SWT>`
+- **JWT Header**: MUST include `alg` (`HS256`, `HS384`, `HS512`, `RS256`, or `ES256` — `none` MUST be rejected), `typ: "SWT"`, and optional `kid` for key/JWKS rotation.
+- **Required Claims**: `webhook` (`event`, `hash` when body is non-empty, optional `retry_count`), `iss`, `aud`, `exp`, `nbf`, `iat`, `jti`.
+- **Body Binding**: `webhook.hash` uses `"<algorithm>:<hex_value>"` (`sha-256`, `sha-384`, `sha-512`, `sha3-256`, `sha3-384`, `sha3-512`). For empty bodies, `webhook.hash` MUST be absent.
+- **Error Mapping**: `400` malformed token or hash mismatch; `401` invalid signature or expired/not-yet-valid token; `403` issuer/audience mismatch.
+
+## Agent & Machine-Readable Resources
+
+- [Full LLM Context Bundle](https://securewebhooktoken.github.io/llms-full.txt): Complete specification, validation steps, and Go/Node.js/Python reference code in a single plain-text file.
+- [SWT Claims JSON Schema](https://securewebhooktoken.github.io/schemas/swt-claims.schema.json): JSON Schema (Draft 2020-12) for SWT payload validation.
+- [Interactive SWT Playground](https://securewebhooktoken.github.io/playground/): Client-side Web Crypto generator and verifier.
+
+## Documentation
+
+- [SWT Specification (Draft-03)](https://securewebhooktoken.github.io/docs/swt/specification/): Full technical specification, claims, hash formats, and A2A workflows.
+- [Security Guidelines](https://securewebhooktoken.github.io/docs/swt/security/): Replay protection, algorithm allowlisting, and clock skew tolerance.
+- [Error Handling](https://securewebhooktoken.github.io/docs/swt/error-handling/): HTTP status codes, structured error classes, logging, and rate limiting.
+- [Multi-Language Quickstart](https://securewebhooktoken.github.io/docs/swt/implementations/quickstart/): Copy-paste examples for Go (`v0.5.0`), Node.js/TypeScript, Python, and cURL.
+
+## Reference Implementations & Standards
+
+- [IETF Datatracker: draft-knauer-secure-webhook-token-03](https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/03/)
+- [Go Reference Library (v0.5.0)](https://github.com/SecureWebhookToken/swt)
+- [IETF Draft Source Repository](https://github.com/SecureWebhookToken/swt-internet-draft)

@@ -1,0 +1,62 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://securewebhooktoken.github.io/schemas/swt-claims.schema.json",
+  "title": "Secure Webhook Token (SWT) Payload Claims",
+  "description": "JWT payload schema for Secure Webhook Tokens per IETF draft-knauer-secure-webhook-token-03.",
+  "type": "object",
+  "required": ["webhook", "iss", "aud", "exp", "nbf", "iat", "jti"],
+  "properties": {
+    "webhook": {
+      "type": "object",
+      "required": ["event"],
+      "properties": {
+        "event": {
+          "type": "string",
+          "minLength": 1,
+          "description": "Webhook event type identifier (e.g. agent.tool.completed, payment.received)."
+        },
+        "hash": {
+          "type": "string",
+          "pattern": "^(sha-256|sha-384|sha-512|sha3-256|sha3-384|sha3-512):[0-9a-f]+$",
+          "description": "Cryptographic hash of raw HTTP POST body in <algorithm>:<hex> format. Required for non-empty bodies, absent for empty bodies."
+        },
+        "retry_count": {
+          "type": "integer",
+          "minimum": 0,
+          "description": "Non-negative delivery attempt counter (0 = initial delivery)."
+        }
+      }
+    },
+    "iss": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Token issuer identifier (URL or URN)."
+    },
+    "aud": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Intended recipient endpoint or service identifier."
+    },
+    "exp": {
+      "type": "integer",
+      "description": "Expiration time (NumericDate, Unix epoch seconds)."
+    },
+    "nbf": {
+      "type": "integer",
+      "description": "Not Before time (NumericDate, Unix epoch seconds)."
+    },
+    "iat": {
+      "type": "integer",
+      "description": "Issued At time (NumericDate, Unix epoch seconds)."
+    },
+    "jti": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Unique JWT ID (UUID recommended) for replay protection."
+    },
+    "sub": {
+      "type": "string",
+      "description": "Optional subject identifier."
+    }
+  }
+}

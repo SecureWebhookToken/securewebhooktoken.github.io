@@ -37,6 +37,24 @@ export default defineConfig({
       customCss: ['./src/styles/custom.css'],
       head: [
         {
+          tag: 'link',
+          attrs: {
+            rel: 'alternate',
+            type: 'text/plain',
+            href: '/llms.txt',
+            title: 'LLM-friendly documentation',
+          },
+        },
+        {
+          tag: 'link',
+          attrs: {
+            rel: 'alternate',
+            type: 'text/plain',
+            href: '/llms-full.txt',
+            title: 'Full LLM context bundle',
+          },
+        },
+        {
           tag: 'script',
           attrs: {
             async: true,
