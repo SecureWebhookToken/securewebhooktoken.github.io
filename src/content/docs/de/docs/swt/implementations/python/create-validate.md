@@ -1,5 +1,6 @@
 ---
-title: "Create & Validate Secure Webhook Token"
+title: "Python: SWT erstellen & validieren"
+description: "Implementiere Secure Webhook Token Generierung und Verifizierung in Python mit PyJWT und hashlib für SHA-256-Body-Bindung und Replay-Schutz."
 ---
 
 ```python

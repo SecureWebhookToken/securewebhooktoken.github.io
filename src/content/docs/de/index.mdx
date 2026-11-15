@@ -1,6 +1,6 @@
 ---
-title: Secure Webhook Token (SWT)
-description: Kryptographische Bindung von Webhook-Payloads an signierte JWTs mit integriertem Replay-Schutz und AI-Agenten-Sicherheit.
+title: Secure Webhook Token (SWT) — Standard & Playground
+description: Offener IETF-Draft-03-Standard zur kryptographischen Bindung von Webhook-Payloads an signierte JWTs mit Replay-Schutz und AI-Agenten-Sicherheit.
 template: splash
 hero:
   tagline: Der offene IETF-Draft-Standard (Draft-03) für kryptographisch gebundene, replay-geschützte und KI-Agenten-sichere Webhook-Authentifizierung.
@@ -115,22 +115,22 @@ In agentischen Systemen (A2A, MCP, asynchrone Tool-Callbacks) fließen eingehend
 <div class="swt-flow not-content">
   <div class="swt-flow-step">
     <div class="swt-flow-num">1</div>
-    <h4>Sender berechnet Hash</h4>
+    <h3>Sender berechnet Hash</h3>
     <p>Berechnet <code>sha-256:&lt;hex&gt;</code> über den HTTP-POST-Body und bettet ihn in <code>webhook.hash</code> ein.</p>
   </div>
   <div class="swt-flow-step">
     <div class="swt-flow-num">2</div>
-    <h4>Signierter HTTP POST</h4>
+    <h3>Signierter HTTP POST</h3>
     <p>Überträgt das Token via <code>Authorization: Bearer &lt;SWT&gt;</code> über TLS 1.2+ / 1.3.</p>
   </div>
   <div class="swt-flow-step">
     <div class="swt-flow-num">3</div>
-    <h4>Signatur &amp; Claims</h4>
+    <h3>Signatur &amp; Claims</h3>
     <p>Empfänger prüft Algorithmus-Allowlist, <code>typ: "SWT"</code>, <code>iss</code>, <code>aud</code> und Clock-Skew-Toleranz.</p>
   </div>
   <div class="swt-flow-step">
     <div class="swt-flow-num">4</div>
-    <h4>Body-Hash &amp; Replay</h4>
+    <h3>Body-Hash &amp; Replay</h3>
     <p>Prüft den Hash in konstanter Zeit und lehnt bereits verwendete <code>jti</code>-Tokens vor der Verarbeitung ab.</p>
   </div>
 </div>

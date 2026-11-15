@@ -1,5 +1,6 @@
 ---
-title: "Client-seitige Token-Generierung"
+title: "Go: Clientseitige Token-Generierung"
+description: "Erstelle und signiere Secure Webhook Tokens in Go mit github.com/SecureWebhookToken/swt v0.5.0 inklusive leerer Bodys und Retry-Logik."
 ---
 
 ## Client-seitige Token-Generierung

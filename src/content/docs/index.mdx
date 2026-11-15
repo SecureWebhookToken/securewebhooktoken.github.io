@@ -1,6 +1,6 @@
 ---
 title: Secure Webhook Token (SWT)
-description: Cryptographically binding webhook payloads to signed JWTs with built-in replay protection and AI Agent A2A security.
+description: Open IETF Draft-03 standard for cryptographically binding HTTP POST webhook payloads to signed JWTs with built-in replay defense and AI agent security.
 template: splash
 hero:
   tagline: The open IETF Draft standard (draft-03) for cryptographically bound, replay-protected, and AI-agent-safe webhook authentication.
@@ -115,22 +115,22 @@ In agentic systems (A2A, MCP, async tool callbacks), incoming webhook bodies fee
 <div class="swt-flow not-content">
   <div class="swt-flow-step">
     <div class="swt-flow-num">1</div>
-    <h4>Sender Computes Hash</h4>
+    <h3>Sender Computes Hash</h3>
     <p>Calculates <code>sha-256:&lt;hex&gt;</code> over the raw HTTP POST body and embeds it into <code>webhook.hash</code>.</p>
   </div>
   <div class="swt-flow-step">
     <div class="swt-flow-num">2</div>
-    <h4>Signed HTTP POST</h4>
+    <h3>Signed HTTP POST</h3>
     <p>Transmits the token via <code>Authorization: Bearer &lt;SWT&gt;</code> over TLS 1.2+ / 1.3.</p>
   </div>
   <div class="swt-flow-step">
     <div class="swt-flow-num">3</div>
-    <h4>Signature &amp; Claims</h4>
+    <h3>Signature &amp; Claims</h3>
     <p>Receiver enforces algorithm allowlist, <code>typ: "SWT"</code>, <code>iss</code>, <code>aud</code>, and clock-skew leeway.</p>
   </div>
   <div class="swt-flow-step">
     <div class="swt-flow-num">4</div>
-    <h4>Body Hash &amp; Replay</h4>
+    <h3>Body Hash &amp; Replay</h3>
     <p>Verifies constant-time hash match and rejects reused <code>jti</code> tokens before invoking business logic.</p>
   </div>
 </div>

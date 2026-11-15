@@ -1,5 +1,6 @@
 ---
-title: "Security Guidelines"
+title: "SWT Security Guidelines & Best Practices"
+description: "Security guidelines for Secure Webhook Tokens: TLS requirements, algorithm allowlisting, JTI replay protection, clock skew leeway, and logging."
 ---
 
 ## Transport Security

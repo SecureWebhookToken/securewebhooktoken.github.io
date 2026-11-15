@@ -1,5 +1,6 @@
 ---
-title: "Datenschutzerklärung"
+title: "Datenschutzerklärung (Deutsch)"
+description: "Datenschutzerklärung für securewebhooktoken.github.io zu GitHub-Pages-Hosting, anonymisierter Google-Analytics-4-Nutzung und Ihren Betroffenenrechten."
 ---
 
 Wir nehmen den Schutz Ihrer persönlichen Daten sehr ernst. Diese Datenschutzerklärung informiert Sie darüber, wie wir mit Daten auf dieser Website umgehen.

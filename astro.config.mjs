@@ -55,6 +55,21 @@ export default defineConfig({
           },
         },
         {
+          tag: 'link',
+          attrs: {
+            rel: 'alternate',
+            hreflang: 'x-default',
+            href: 'https://securewebhooktoken.github.io/',
+          },
+        },
+        {
+          tag: 'meta',
+          attrs: {
+            property: 'og:image',
+            content: 'https://securewebhooktoken.github.io/favicon.svg',
+          },
+        },
+        {
           tag: 'script',
           attrs: {
             async: true,

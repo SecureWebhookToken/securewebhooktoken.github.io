@@ -1,5 +1,6 @@
 ---
-title: "Server-side Validation"
+title: "Go: Server-side Validation & Middleware"
+description: "Verify Secure Webhook Tokens in Go with swt.Middleware, single-pass streaming body hash checks, custom claims, and structured error handling."
 ---
 
 ## Server-side Validation

@@ -1,5 +1,6 @@
 ---
-title: "Sicherheitsrichtlinien"
+title: "SWT Sicherheitsrichtlinien & Best Practices"
+description: "Sicherheitsrichtlinien für Secure Webhook Tokens: TLS-Anforderungen, Algorithmus-Allowlist, JTI-Replay-Schutz, Clock-Skew-Toleranz und Logging."
 ---
 
 ## Transport-Sicherheit

@@ -1,5 +1,6 @@
 ---
-title: "Fehlerbehandlung"
+title: "SWT Fehlerbehandlung & Monitoring"
+description: "Strukturierte Fehlerbehandlung für Secure Webhook Tokens: HTTP-Statuscodes 400/401/403, Fehlerklassen, Prometheus-Metriken und Rate Limiting."
 ---
 
 ## Häufige Validierungsfehler

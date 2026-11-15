@@ -1,5 +1,6 @@
 ---
-title: "Error Handling"
+title: "SWT Error Handling & Monitoring"
+description: "Structured error handling for Secure Webhook Token validation: HTTP 400/401/403 status mapping, custom error classes, metrics, and rate limiting."
 ---
 
 ## Common Validation Errors

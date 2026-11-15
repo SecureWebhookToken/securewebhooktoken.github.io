@@ -1,5 +1,6 @@
 ---
-title: "Webhook-Handler"
+title: "Node.js: Express Webhook-Handler"
+description: "Produktionsreifer Express.js-Webhook-Handler für Secure Webhook Tokens mit Raw-Body-Parsing, Hash-Prüfung und Event-Routing."
 ---
 
 ## Webhook-Handler (Express.js)

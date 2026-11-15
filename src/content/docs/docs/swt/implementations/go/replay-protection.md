@@ -1,5 +1,6 @@
 ---
-title: "Replay Protection"
+title: "Go: Replay Protection (Memory & Redis)"
+description: "Prevent webhook replay attacks in Go using swt.NewMemoryReplayChecker, Redis-backed JTI tracking, and PostgreSQL replay storage patterns."
 ---
 
 ## Replay Protection

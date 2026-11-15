@@ -1,5 +1,6 @@
 ---
-title: "Client-seitige Token-Generierung"
+title: "Node.js: Clientseitige Token-Generierung"
+description: "Erstelle und signiere Secure Webhook Tokens in Node.js und JavaScript mit SHA-256-Payload-Hashing und HTTP-POST-Versandbeispielen."
 ---
 
 ## Client-seitige Token-Generierung

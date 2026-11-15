@@ -1,5 +1,6 @@
 ---
-title: "Client-side Token Generation"
+title: "Node.js: Client-side Token Generation"
+description: "Create and sign Secure Webhook Tokens in Node.js and JavaScript with SHA-256 payload hashing and Axios/Fetch HTTP POST delivery examples."
 ---
 
 ## Client-side Token Generation

@@ -1,5 +1,6 @@
 ---
-title: "Server-seitige Validierung"
+title: "Node.js: Serverseitige Validierung"
+description: "Validiere Secure Webhook Tokens in Node.js und Express: JWT-Signaturprüfung, typ SWT, webhook.hash-Abgleich und Schutz vor Replay-Angriffen."
 ---
 
 ## Server-seitige Validierung (Node.js)

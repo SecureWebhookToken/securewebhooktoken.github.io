@@ -1,5 +1,6 @@
 ---
-title: "Privacy Policy"
+title: "Privacy Policy (English)"
+description: "Privacy policy for securewebhooktoken.github.io covering GitHub Pages hosting, anonymized Google Analytics 4 usage, and your GDPR data rights."
 ---
 
 We take the protection of your personal data very seriously. This privacy policy informs you about how we handle data on this website.

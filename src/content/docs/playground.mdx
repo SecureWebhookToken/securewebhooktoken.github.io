@@ -1,6 +1,6 @@
 ---
-title: SWT Playground
-description: Interactive in-browser Secure Webhook Token (SWT) generator, decoder, and verifier.
+title: Interactive SWT Playground
+description: Generate, inspect, and verify Secure Webhook Tokens (SWT) directly in your browser using the Web Crypto API with live tampering tests.
 tableOfContents: false
 ---
 
@@ -10,7 +10,7 @@ Generate, inspect, and verify **Secure Webhook Tokens (SWT)** directly in your b
 
 <SWTPlayground client:load locale="en" />
 
-### How to test Payload Tampering
+## How to test Payload Tampering
 
 1. Select a preset (e.g., **AI Agent Callback** or **Payment Event**).
 2. Click **⚡ Tamper Body** in the top-right toolbar. This modifies the HTTP POST body *without* re-signing the token.

@@ -1,5 +1,6 @@
 ---
-title: "Specification"
+title: "SWT Specification (IETF Draft-03)"
+description: "Complete technical specification of Secure Webhook Token (SWT) Draft-03: JWT header, webhook.hash binding, required claims, and A2A security."
 ---
 
 ## Overview
