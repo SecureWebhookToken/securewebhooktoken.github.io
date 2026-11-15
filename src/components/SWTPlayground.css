@@ -303,6 +303,29 @@
   gap: 0.5rem;
 }
 
+.swt-pg-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  height: 2.15rem;
+  padding: 0 0.7rem;
+  border-radius: 8px;
+  border: 1px solid var(--sl-color-hairline);
+  background: var(--sl-color-bg);
+  font-size: 0.78rem;
+  font-weight: 500;
+  color: var(--sl-color-gray-2);
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.swt-pg-toggle input {
+  margin: 0;
+  accent-color: var(--sl-color-accent);
+  cursor: pointer;
+}
+
 @media (max-width: 900px) {
   .swt-pg-grid {
     grid-template-columns: minmax(0, 1fr);

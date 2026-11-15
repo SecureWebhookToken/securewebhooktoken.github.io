@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import './SWTPlayground.css';
 
 type Alg = 'HS256' | 'HS384' | 'HS512';
@@ -69,6 +69,7 @@ const PRESETS: Preset[] = [
 const TEXT = {
   en: {
     presets: 'Presets:',
+    autoSign: 'Auto-sign',
     tamper: 'Tamper Body',
     resign: 'Re-sign Token',
     newJti: 'New JTI',
@@ -96,12 +97,14 @@ const TEXT = {
     fail: 'FAIL',
     decodedHeader: 'Decoded Header',
     decodedPayload: 'Decoded Payload',
-    tamperReason: 'Body was modified after signing (webhook.hash mismatch -> HTTP 400)',
-    sigFailReason: 'HMAC signature mismatch (HTTP 401)',
+    tamperReason: 'Body does not match signed webhook.hash (HTTP 400). Click "Re-sign Token" to update.',
+    sigFailReason: 'HMAC signature verification failed with current secret (HTTP 401).',
+    claimsFailReason: 'Input claims (jti, iss, aud, or event) differ from the signed token. Click "Re-sign Token" to update.',
     emptyBodyRule: 'Empty body verified (no hash claim)',
   },
   de: {
     presets: 'Vorlagen:',
+    autoSign: 'Auto-Sign',
     tamper: 'Body manipulieren',
     resign: 'Neu signieren',
     newJti: 'Neue JTI',
@@ -129,8 +132,9 @@ const TEXT = {
     fail: 'FEHLER',
     decodedHeader: 'Dekodierter Header',
     decodedPayload: 'Dekodierter Payload',
-    tamperReason: 'Body wurde nach Signierung verändert (webhook.hash stimmt nicht überein -> HTTP 400)',
-    sigFailReason: 'HMAC-Signatur ungültig (HTTP 401)',
+    tamperReason: 'Body stimmt nicht mit signiertem webhook.hash überein (HTTP 400). Klicke auf „Neu signieren“.',
+    sigFailReason: 'HMAC-Signaturprüfung mit aktuellem Secret fehlgeschlagen (HTTP 401).',
+    claimsFailReason: 'Eingabe-Claims (jti, iss, aud oder event) weichen vom signierten Token ab. Klicke auf „Neu signieren“.',
     emptyBodyRule: 'Leerer Body verifiziert (kein Hash-Claim)',
   },
 } as const;
@@ -141,6 +145,16 @@ function base64UrlEncode(bytes: Uint8Array): string {
     binary += String.fromCharCode(bytes[i]);
   }
   return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+
+function base64UrlDecode(str: string): Uint8Array {
+  const padded = str.replace(/-/g, '+').replace(/_/g, '/') + '==='.slice((str.length + 3) % 4);
+  const binary = atob(padded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 function encodeJsonBase64Url(obj: unknown): string {
@@ -172,7 +186,7 @@ function subtleHashName(alg: HashAlg): 'SHA-256' | 'SHA-384' | 'SHA-512' {
   }
 }
 
-function subtleHmacName(alg: Alg): 'SHA-256' | 'SHA-384' | 'SHA-512' {
+function subtleHmacName(alg: string): 'SHA-256' | 'SHA-384' | 'SHA-512' {
   switch (alg) {
     case 'HS384':
       return 'SHA-384';
@@ -193,7 +207,7 @@ async function signHmac(alg: Alg, signingInput: string, secret: string): Promise
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey(
     'raw',
-    enc.encode(secret),
+    enc.encode(secret || ' '),
     { name: 'HMAC', hash: subtleHmacName(alg) },
     false,
     ['sign']
@@ -202,9 +216,32 @@ async function signHmac(alg: Alg, signingInput: string, secret: string): Promise
   return base64UrlEncode(new Uint8Array(sig));
 }
 
+async function verifyHmac(token: string, secret: string): Promise<boolean> {
+  const parts = token.split('.');
+  if (parts.length !== 3 || !secret) return false;
+  try {
+    const header = JSON.parse(new TextDecoder().decode(base64UrlDecode(parts[0]))) as { alg?: string };
+    const alg = header.alg || 'HS256';
+    const enc = new TextEncoder();
+    const key = await crypto.subtle.importKey(
+      'raw',
+      enc.encode(secret),
+      { name: 'HMAC', hash: subtleHmacName(alg) },
+      false,
+      ['verify']
+    );
+    const sigBytes = base64UrlDecode(parts[2]);
+    const signingInput = enc.encode(`${parts[0]}.${parts[1]}`);
+    return await crypto.subtle.verify('HMAC', key, sigBytes as BufferSource, signingInput);
+  } catch {
+    return false;
+  }
+}
+
 export default function SWTPlayground({ locale = 'en' }: Props) {
   const t = TEXT[locale];
   const [activePreset, setActivePreset] = useState<string>('agent');
+  const [autoSign, setAutoSign] = useState<boolean>(false);
   const [alg, setAlg] = useState<Alg>('HS256');
   const [hashAlg, setHashAlg] = useState<HashAlg>('sha-256');
   const [kid, setKid] = useState<string>('key-2026-q4');
@@ -214,42 +251,40 @@ export default function SWTPlayground({ locale = 'en' }: Props) {
   const [jti, setJti] = useState<string>('550e8400-e29b-41d4-a716-446655440000');
   const [secret, setSecret] = useState<string>('super-secret-256-bit-webhook-key-2026');
   const [body, setBody] = useState<string>(PRESETS[0].body);
-  const [signedBodySnapshot, setSignedBodySnapshot] = useState<string>(PRESETS[0].body);
-  const [tampered, setTampered] = useState<boolean>(false);
 
   const [token, setToken] = useState<string>('');
   const [decodedHeader, setDecodedHeader] = useState<Record<string, unknown>>({});
   const [decodedPayload, setDecodedPayload] = useState<Record<string, unknown>>({});
+  const [sigValid, setSigValid] = useState<boolean>(true);
   const [computedBodyHash, setComputedBodyHash] = useState<string>('');
   const [copiedState, setCopiedState] = useState<'none' | 'token' | 'curl'>('none');
 
-  // Generate real UUID on client mount to avoid SSR hydration mismatch
-  useEffect(() => {
-    setJti(generateUuid());
-  }, []);
-
-  // Recompute token whenever inputs change (except when in tamper mode, where body diverges from signedBodySnapshot)
-  useEffect(() => {
-    let cancelled = false;
-
-    async function buildToken() {
+  const signCurrentToken = useCallback(
+    async (params: {
+      alg: Alg;
+      hashAlg: HashAlg;
+      kid: string;
+      event: string;
+      iss: string;
+      aud: string;
+      jti: string;
+      secret: string;
+      body: string;
+    }) => {
       if (typeof crypto === 'undefined' || !crypto.subtle) return;
-
       const now = Math.floor(Date.now() / 1000);
-      const bodyToSign = tampered ? signedBodySnapshot : body;
-      const bodyHash = bodyToSign.length > 0 ? await computeBodyHash(hashAlg, bodyToSign) : undefined;
-      const liveBodyHash = body.length > 0 ? await computeBodyHash(hashAlg, body) : '';
+      const bodyHash = params.body.length > 0 ? await computeBodyHash(params.hashAlg, params.body) : undefined;
 
       const header: Record<string, unknown> = {
-        alg,
+        alg: params.alg,
         typ: 'SWT',
       };
-      if (kid.trim()) {
-        header.kid = kid.trim();
+      if (params.kid.trim()) {
+        header.kid = params.kid.trim();
       }
 
       const webhookClaim: Record<string, unknown> = {
-        event: event || 'webhook.event',
+        event: params.event || 'webhook.event',
         retry_count: 0,
       };
       if (bodyHash) {
@@ -258,30 +293,74 @@ export default function SWTPlayground({ locale = 'en' }: Props) {
 
       const payload: Record<string, unknown> = {
         webhook: webhookClaim,
-        iss,
-        aud,
+        iss: params.iss,
+        aud: params.aud,
         iat: now,
         nbf: now,
         exp: now + 900,
-        jti,
+        jti: params.jti,
       };
 
       const signingInput = `${encodeJsonBase64Url(header)}.${encodeJsonBase64Url(payload)}`;
-      const signature = await signHmac(alg, signingInput, secret || ' ');
+      const signature = await signHmac(params.alg, signingInput, params.secret);
+
+      setToken(`${signingInput}.${signature}`);
+      setDecodedHeader(header);
+      setDecodedPayload(payload);
+    },
+    []
+  );
+
+  // Initial mount: generate UUID and sign initial token
+  useEffect(() => {
+    const initialJti = generateUuid();
+    setJti(initialJti);
+    signCurrentToken({
+      alg,
+      hashAlg,
+      kid,
+      event,
+      iss,
+      aud,
+      jti: initialJti,
+      secret,
+      body,
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // If autoSign is enabled, re-sign automatically when inputs change
+  useEffect(() => {
+    if (!autoSign) return;
+    signCurrentToken({ alg, hashAlg, kid, event, iss, aud, jti, secret, body });
+  }, [autoSign, alg, hashAlg, kid, event, iss, aud, jti, secret, body, signCurrentToken]);
+
+  // Real receiver verification whenever token, secret, or body changes
+  useEffect(() => {
+    let cancelled = false;
+    async function runVerification() {
+      if (typeof crypto === 'undefined' || !crypto.subtle || !token) return;
+      const webhook = (decodedPayload.webhook as Record<string, unknown> | undefined) || {};
+      const tokenHash = typeof webhook.hash === 'string' ? webhook.hash : '';
+      const tokenHashAlg = (tokenHash.split(':')[0] as HashAlg) || hashAlg;
+      const validHashAlg: HashAlg =
+        tokenHashAlg === 'sha-384' || tokenHashAlg === 'sha-512' ? tokenHashAlg : 'sha-256';
+
+      const [isSigOk, liveHash] = await Promise.all([
+        verifyHmac(token, secret),
+        body.length > 0 ? computeBodyHash(validHashAlg, body) : Promise.resolve(''),
+      ]);
 
       if (!cancelled) {
-        setToken(`${signingInput}.${signature}`);
-        setDecodedHeader(header);
-        setDecodedPayload(payload);
-        setComputedBodyHash(liveBodyHash);
+        setSigValid(isSigOk);
+        setComputedBodyHash(liveHash);
       }
     }
-
-    buildToken();
+    runVerification();
     return () => {
       cancelled = true;
     };
-  }, [alg, hashAlg, kid, event, iss, aud, jti, secret, body, tampered, signedBodySnapshot]);
+  }, [token, secret, body, decodedPayload, hashAlg]);
 
   const tokenParts = useMemo(() => {
     const parts = token.split('.');
@@ -295,49 +374,63 @@ export default function SWTPlayground({ locale = 'en' }: Props) {
   const verification = useMemo(() => {
     const webhook = (decodedPayload.webhook as Record<string, unknown> | undefined) || {};
     const tokenHash = typeof webhook.hash === 'string' ? webhook.hash : '';
-    const hasSecret = secret.length > 0;
 
     let hashOk = false;
-    let hashMessage = '';
-
     if (body.length === 0) {
       hashOk = !tokenHash;
-      hashMessage = hashOk ? t.emptyBodyRule : t.tamperReason;
     } else {
       hashOk = Boolean(tokenHash && tokenHash === computedBodyHash);
-      hashMessage = hashOk ? `${computedBodyHash.slice(0, 24)}...` : t.tamperReason;
     }
 
-    const claimsOk = Boolean(decodedPayload.iss && decodedPayload.aud && decodedPayload.jti && webhook.event);
-    const sigOk = hasSecret && tokenParts.signature.length > 0;
-    const allOk = sigOk && hashOk && claimsOk;
+    const claimsMatchInput =
+      decodedPayload.jti === jti &&
+      decodedPayload.iss === iss &&
+      decodedPayload.aud === aud &&
+      webhook.event === (event || 'webhook.event');
+
+    const claimsOk = Boolean(
+      decodedPayload.iss && decodedPayload.aud && decodedPayload.jti && webhook.event && claimsMatchInput
+    );
+    const typOk = decodedHeader.typ === 'SWT';
+    const allOk = sigValid && hashOk && claimsOk && typOk;
+
+    const reasons: string[] = [];
+    if (!sigValid) reasons.push(t.sigFailReason);
+    if (!hashOk) reasons.push(t.tamperReason);
+    if (!claimsOk) reasons.push(t.claimsFailReason);
 
     return {
       allOk,
-      sigOk,
+      sigOk: sigValid,
       hashOk,
       claimsOk,
-      hashMessage,
-      errorReason: !sigOk ? t.sigFailReason : !hashOk ? t.tamperReason : '',
+      typOk,
+      reasons,
     };
-  }, [decodedPayload, body, computedBodyHash, secret, tokenParts.signature, t]);
+  }, [decodedHeader, decodedPayload, body, computedBodyHash, sigValid, jti, iss, aud, event, t]);
 
   function applyPreset(preset: Preset) {
+    const nextJti = generateUuid();
     setActivePreset(preset.id);
     setEvent(preset.event);
     setIss(preset.iss);
     setAud(preset.aud);
     setBody(preset.body);
-    setSignedBodySnapshot(preset.body);
-    setTampered(false);
-    setJti(generateUuid());
+    setJti(nextJti);
+    signCurrentToken({
+      alg,
+      hashAlg,
+      kid,
+      event: preset.event,
+      iss: preset.iss,
+      aud: preset.aud,
+      jti: nextJti,
+      secret,
+      body: preset.body,
+    });
   }
 
   function handleTamper() {
-    if (!tampered) {
-      setSignedBodySnapshot(body);
-      setTampered(true);
-    }
     if (body.length === 0) {
       setBody('{"injected": true}');
     } else if (body.includes('0.99')) {
@@ -350,9 +443,7 @@ export default function SWTPlayground({ locale = 'en' }: Props) {
   }
 
   function handleResign() {
-    setSignedBodySnapshot(body);
-    setTampered(false);
-    setJti(generateUuid());
+    signCurrentToken({ alg, hashAlg, kid, event, iss, aud, jti, secret, body });
   }
 
   async function copyText(kind: 'token' | 'curl') {
@@ -388,6 +479,14 @@ export default function SWTPlayground({ locale = 'en' }: Props) {
           ))}
         </div>
         <div className="swt-pg-actions">
+          <label className="swt-pg-toggle">
+            <input
+              type="checkbox"
+              checked={autoSign}
+              onChange={(e) => setAutoSign(e.target.checked)}
+            />
+            <span>{t.autoSign}</span>
+          </label>
           <button type="button" className="swt-pg-btn swt-pg-btn--danger" onClick={handleTamper}>
             ⚡ {t.tamper}
           </button>
@@ -519,10 +618,12 @@ export default function SWTPlayground({ locale = 'en' }: Props) {
               <span>{verification.allOk ? '✓' : '✕'}</span>
               <span>{verification.allOk ? t.validTitle : t.invalidTitle}</span>
             </div>
-            {verification.errorReason && <div>{verification.errorReason}</div>}
+            {verification.reasons.map((reason, idx) => (
+              <div key={idx}>{reason}</div>
+            ))}
             <div className="swt-pg-checks">
               <span className="swt-pg-check-pill">
-                {t.typCheck}: {t.pass}
+                {t.typCheck}: {verification.typOk ? t.pass : t.fail}
               </span>
               <span className="swt-pg-check-pill">
                 {t.sigCheck}: {verification.sigOk ? t.pass : t.fail}
