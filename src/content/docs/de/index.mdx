@@ -22,7 +22,7 @@ hero:
 import { Card, CardGrid, Tabs, TabItem } from '@astrojs/starlight/components';
 import SWTPlayground from '../../../components/SWTPlayground.tsx';
 
-<div class="swt-badges">
+<div class="swt-badges not-content">
   <a class="swt-badge swt-badge--accent" href="https://datatracker.ietf.org/doc/draft-knauer-secure-webhook-token/03/">IETF Draft-03</a>
   <a class="swt-badge swt-badge--emerald" href="https://github.com/SecureWebhookToken/swt/releases/tag/v0.5.0">Go Referenz v0.5.0</a>
   <span class="swt-badge">typ: "SWT"</span>
@@ -108,7 +108,7 @@ Herkömmliche Webhook-Verfahren setzen entweder auf proprietäre HMAC-Header ohn
 
 ## Ablauf der Request-Verifizierung
 
-<div class="swt-flow">
+<div class="swt-flow not-content">
   <div class="swt-flow-step">
     <div class="swt-flow-num">1</div>
     <h4>Sender berechnet Hash</h4>

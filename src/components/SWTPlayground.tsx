@@ -372,7 +372,7 @@ export default function SWTPlayground({ locale = 'en' }: Props) {
   }
 
   return (
-    <div className="swt-pg">
+    <div className="swt-pg not-content">
       <div className="swt-pg-toolbar">
         <div className="swt-pg-presets">
           <span className="swt-pg-label">{t.presets}</span>
